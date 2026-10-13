@@ -179,6 +179,130 @@ Known constraints:
 - Recommendation: geofence, periodic GPS, hybrid, manual review only, or no automatic checkout.
 - Real-device field-test plan and constraints.
 
+## Implemented Prototype Procedure
+
+The implemented prototype is an isolated Flutter target:
+
+```sh
+flutter run -t lib/spikes/geofencing/main_geofence_spike.dart
+```
+
+It keeps the normal `lib/main.dart` entry point unchanged. Android geofencing permissions and `native_geofence` receivers/services are declared in `android/app/src/debug/AndroidManifest.xml`, so this spike is scoped to debug builds.
+
+### Launch and Permission Sequence
+
+1. Launch the Pixel 9 emulator.
+2. Confirm the emulator uses a Google APIs / Google Play image so Google Play services can provide geofence behavior.
+3. Run the prototype target:
+
+   ```sh
+   flutter run -d emulator-5554 -t lib/spikes/geofencing/main_geofence_spike.dart
+   ```
+
+4. In the prototype, tap `Capturer la position GPS` to request an explicit GPS fix and grant foreground location permission.
+5. Tap `Démarrer / enregistrer`.
+6. Read the background-location explanation and continue to Android permission controls.
+7. Grant `Allow all the time` / `Toujours autoriser` where Android exposes that option.
+8. If Android sends the user to Settings, return to the app and tap `Rafraîchir diagnostics`.
+
+Android requires foreground location permission before background location permission. The prototype should not silently activate monitoring without the required permissions.
+
+### Emulator Movement Test
+
+1. In Android Studio, open `Extended Controls > Location`.
+2. Set an initial virtual GPS location and wait for the emulator to obtain a fix.
+3. In the prototype, choose `100 m` and tap `Démarrer / enregistrer`.
+4. Confirm that the UI shows a registered geofence identifier and monitoring state.
+5. In `Extended Controls > Location`, move the virtual location clearly outside the 100m radius.
+6. Observe whether Android delivers an exit callback in the prototype's chronological event history.
+7. Record the callback receipt time and compare it with the time the simulated movement was made.
+8. Move the virtual location back inside the geofence.
+9. Observe whether Android delivers an enter callback and whether the state machine records a return before the 10-minute grace expiration.
+10. Repeat the same procedure with the 150m radius.
+11. Tap `Arrêter / supprimer`.
+12. Confirm the registered geofence list becomes empty and subsequent callbacks do not affect the stopped test session.
+
+### State-Machine Test Versus Android Callback Test
+
+Unit tests inject artificial Dart events into the pure state machine. They verify business logic such as duplicate handling, stale session rejection, grace-period expiration, and return-before-expiration behavior.
+
+Those tests do not prove that Android delivered a real geofence callback. A passing unit test only proves the elapsed-time state-machine logic behaves correctly once evidence is received.
+
+The emulator procedure tests whether Android and Google Play services deliver real geofence callbacks to the Flutter background callback.
+
+### First Emulator Testing Session - October 12, 2026
+
+Environment:
+
+- Pixel 9 Android emulator, API 37.
+- Foreground and background location permissions granted.
+
+Observed results:
+
+- GPS acquisition succeeded.
+- 100m geofence registration succeeded.
+- Android EXIT callback received.
+- Changing the emulator GPS position beyond the registered 100m geofence did not independently produce a promptly visible EXIT event.
+- Opening Google Maps and allowing it to obtain a location fix caused the EXIT callback to be delivered to ChantiPoint.
+- Grace period correctly entered.
+- `automaticCheckoutCandidate` appeared after grace expiration when state evaluation occurred.
+- Android ENTER callback received.
+- An ENTER after grace expiration was logged but did not reactivate the candidate session.
+- Geofence removal succeeded.
+- A second session demonstrated EXIT followed by ENTER during the 10-minute grace period.
+- That return cancelled the automatic checkout candidate.
+
+Second session timestamps:
+
+- Registration: 21:30:34.
+- EXIT callback: 21:36:12.
+- ENTER callback: 21:38:28.
+
+Important limitations from this session:
+
+- Obtaining a fresh location using `Geolocator.getCurrentPosition()` appeared correlated with callback delivery on the emulator.
+- This session did not prove that the manual GPS request caused the callbacks.
+- The Google Maps observation supports an emulator/location-provider limitation, but does not prove that real-device background geofencing is reliable.
+- Unattended background delivery is not validated.
+- The 10-minute candidate was evaluated through the application's refresh/evaluation mechanism; autonomous expiration has not been demonstrated.
+- No physical Android device has been tested.
+- These results do not make geofencing production-ready.
+
+### Emulator Troubleshooting
+
+If the emulator does not generate exit events:
+
+- Verify Google Play services is available on the emulator image.
+- Confirm location services are enabled.
+- Confirm foreground and background location permissions are granted.
+- Wait for a stable initial location fix before registering the geofence.
+- Try both 100m and 150m radii.
+- Move the virtual GPS point well beyond the selected radius.
+- Relaunch the app and tap `Rafraîchir diagnostics` to inspect persisted callback history without requesting a fresh GPS fix.
+- Record the result as inconclusive rather than fabricating a pass.
+
+### Test Results Template
+
+| Field | Result |
+| --- | --- |
+| Test date/time | |
+| Emulator model and Android API | Pixel 9, API 37 |
+| App command used | |
+| Prototype build succeeded? | |
+| Foreground permission granted? | |
+| Background permission granted? | |
+| Initial GPS fix latitude/longitude/accuracy | |
+| Radius tested | 100m / 150m |
+| Geofence registration result | |
+| Exit simulated at local time | |
+| Exit callback received at local time | |
+| Exit callback latency | |
+| Return simulated at local time | |
+| Return callback received at local time | |
+| State-machine result | |
+| Stop/unregister result | |
+| Notes, errors, or inconclusive behavior | |
+
 ## Open Risks
 
 - Emulator success does not prove real-device reliability.
