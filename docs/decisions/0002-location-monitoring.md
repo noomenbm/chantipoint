@@ -2,26 +2,26 @@
 
 Date: 2026-10-12
 
-Status: Proposed pending feasibility validation and client approval
+Status: Proposed; emulator feasibility completed, pending real-device validation and client approval
 
 ## Context
 
-The core business concern is that an employee may check in at a workplace, leave for an extended period, and later check out, making the session appear uninterrupted.
+The core business concern is that an employee may check in at an external worksite, leave for an extended period, and later check out, making the session appear uninterrupted.
 
-The product should provide location-based evidence about whether the employee's phone remained near the declared workplace during an active work session. It must not claim certainty about physical presence or work activity.
+The product should provide location-based evidence about whether the employee's phone remained near the declared external worksite during an active work session. It must not claim certainty about physical presence or work activity. Factory/company-premises attendance does not use GPS or geofencing.
 
 Android and iOS may delay, suppress, or restrict background location and geofence events. Personal devices also vary by operating-system version, settings, battery optimization, permissions, hardware accuracy, connectivity, and whether location services remain enabled.
 
 ## Decision
 
-Use geofencing as the preferred technical candidate for the first feasibility spike, not as an approved production commitment.
+Use geofencing as the preferred technical candidate for external-worksite verification, not as an approved production commitment.
 
-The first spike will use an isolated Android emulator prototype with simulated GPS movement. It will test:
+The first spike used an isolated Android emulator prototype with simulated GPS movement. It tested:
 
 - Geofence registration.
 - Simulated exit and return events.
-- Candidate 100m and 150m radii.
-- Event timestamp versus callback/receipt timestamp.
+- Candidate 100m radius behavior; a 150m option existed but was not separately tested in M1.
+- Callback/receipt timestamp capture and explicit handling when an original native event timestamp is unavailable.
 - Delayed event handling.
 - Simulated 10-minute grace period.
 - Monitoring disabled or unavailable states.
@@ -30,7 +30,7 @@ The first spike will use an isolated Android emulator prototype with simulated G
 
 Automatic checkout remains disabled in production until:
 
-- Emulator feasibility testing is complete.
+- Emulator feasibility findings are reviewed.
 - Later real-device field testing is planned and completed.
 - Evidence rules and thresholds are approved.
 - Privacy and platform release gates are satisfied.

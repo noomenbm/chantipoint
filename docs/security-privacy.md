@@ -13,7 +13,7 @@ This document records security and privacy requirements, risks, and release gate
 
 ## Privacy Position
 
-ChantiPoint processes sensitive employee location information. The employer is expected to lead employee notices, monitoring policy, EFVP, and legal/HR validation. The developer remains responsible for implementing agreed technical security and privacy safeguards.
+ChantiPoint processes employee attendance information and, for approved external-worksite verification only, sensitive employee location information. Factory/company-premises attendance is digital time attendance and must not request, collect, or store GPS coordinates. The employer is expected to lead employee notices, monitoring policy, EFVP, and legal/HR validation. The developer remains responsible for implementing agreed technical security and privacy safeguards.
 
 Employee consent or app permission prompts alone must not be treated as sufficient authorization for monitoring. Privacy approval, retention rules, employee notices, and BYOD expectations remain pending formal validation.
 
@@ -26,7 +26,7 @@ No real employee monitoring may begin before applicable privacy, security, platf
 | PR-001 | Complete a Privacy Impact Assessment / EFVP where required before real employee monitoring. | Release gate |
 | PR-002 | Define the lawful business purpose and necessity of on-duty location verification. | Release gate |
 | PR-003 | Provide clear employee notice describing when location is collected, why, by whom, and for how long. | Release gate |
-| PR-004 | Limit location collection to active work sessions. | Required |
+| PR-004 | Limit location collection to authorized active external-worksite sessions. | Required |
 | PR-005 | Stop monitoring immediately after checkout or approved session closure. | Required |
 | PR-006 | Record unavailable monitoring as inconclusive, not as absence. | Required |
 | PR-007 | Define retention and deletion rules separately by data category. | Unresolved |
@@ -34,6 +34,8 @@ No real employee monitoring may begin before applicable privacy, security, platf
 | PR-009 | Confirm BYOD expectations, reimbursement/support assumptions, and consequences when permissions are refused or revoked. | Unresolved |
 | PR-010 | Confirm Google Play and Apple background-location requirements before store distribution. | Release gate |
 | PR-011 | Treat administrator-generated records about identifiable employees as personal information. | Required |
+| PR-012 | Do not collect GPS or use geofencing for factory/company-premises attendance. | Required |
+| PR-013 | Preserve attendance records, approved corrections, and any approved monthly summaries according to a validated retention policy. | Unresolved |
 
 ## Security Requirements
 
@@ -49,10 +51,12 @@ No real employee monitoring may begin before applicable privacy, security, platf
 - Protect duplicate check-in/check-out/location-event requests with idempotency.
 - Preserve original records when corrections are approved.
 - Validate emulator behavior first, then real-device behavior before any pilot with employee data.
+- Keep attendance calculations reproducible from validated sessions and approved corrections.
 
 ## Monitoring Boundaries
 
-- Location is collected only during active work sessions.
+- Location is collected only during active external-worksite sessions when authorized and technically supported.
+- Factory/company-premises attendance does not use location permissions, GPS coordinates, geofences, or background location monitoring.
 - No route tracking is included in V1.
 - No productivity surveillance is included in V1.
 - No location collection occurs after checkout.
@@ -64,19 +68,20 @@ No real employee monitoring may begin before applicable privacy, security, platf
 
 ## Retention Design
 
-Retention must be approved before production monitoring:
+Retention must be approved before production monitoring or deployment with real employee information. The previously discussed 30-day GPS/geofence period is only an unapproved planning example, not a universal deletion rule.
 
 | Data Category | Candidate Position |
 | --- | --- |
-| Raw location observations | Approximately 30 days, pending legal/business approval. |
-| Detailed geofence evidence | Approximately 30 days, pending legal/business approval. |
-| Work sessions | Pending legal/business approval. |
+| Raw location observations | Configurable period pending legal/business approval. |
+| Detailed geofence evidence | Configurable period pending legal/business approval. |
+| Work sessions | Pending legal/business approval; must support historical attendance reporting. |
+| Monthly attendance summaries | Pending legal/business approval; may need preservation after detailed GPS evidence expires. |
 | Correction requests | Pending legal/business approval. |
 | Administrator decisions | Pending legal/business approval; not assumed indefinite. |
 | Security/audit logs | Pending legal/business approval. |
 | Backups | Pending legal/business and operational approval. |
 
-Routine CSV exports should exclude detailed location trails. Exported files can become sensitive uncontrolled copies and require handling rules.
+Routine CSV exports should exclude detailed location trails. Monthly employee-hours exports are operational attendance reports, not payroll submissions. Exported files can become sensitive uncontrolled copies and require handling rules.
 
 ## Release Gates
 
@@ -95,6 +100,7 @@ Routine CSV exports should exclude detailed location trails. Exported files can 
 ## Major Risks
 
 - Location monitoring may be considered disproportionate without clear business justification and safeguards.
+- Collecting GPS for factory/company-premises attendance would violate the current product requirement and data-minimization stance.
 - BYOD tracking can create employee trust, support, and privacy concerns.
 - Background location permissions may be denied by employees or restricted by operating systems.
 - Permission revocation, device shutdown, connectivity loss, or background-service termination may not be detected immediately.
@@ -107,7 +113,11 @@ Routine CSV exports should exclude detailed location trails. Exported files can 
 
 - Formal client approval of monitoring model.
 - Whether automatic checkout is allowed in production, and what exceptions apply.
+- Exact behavior when GPS is unavailable during external-worksite check-in.
 - Exact handling when location permission or services are disabled but detection is delayed.
+- Lunch and break handling, including whether employees punch out or whether any deduction applies.
+- Whether monthly attendance totals require formal administrator approval before use.
+- Whether daily and weekly reports are added after V1.
 - Eight-hour notification no-response behavior.
 - Absolute maximum monitoring duration for long sessions.
 - Retention period for each data category.

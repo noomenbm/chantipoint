@@ -7,9 +7,11 @@ This document defines the initial logical model only. It is not a SQL migration,
 - Keep employees, roles, sessions, events, observations, monitoring status, review status, corrections, retention, and audit history separate.
 - Store timestamps in UTC and display business time in America/Toronto.
 - Preserve device-observed timestamps, callback/receipt timestamps, and server-accepted timestamps separately.
-- Record GPS accuracy where available.
+- Record GPS accuracy where available for external-worksite location evidence.
+- Support factory/company-premises sessions without GPS coordinates or location observations.
 - Avoid unnecessary location history and exclude detailed location trails from routine CSV exports.
 - Preserve enough history to review departures, returns, automatic closures, corrections, and administrative changes.
+- Calculate attendance reports from validated sessions and approved corrections rather than manually maintained duplicate totals.
 - Enforce authorization server-side with RLS and privileged server operations where needed.
 
 ## Status Separation
@@ -20,7 +22,7 @@ Three concepts must not share one overloaded field:
 | --- | --- | --- |
 | Session lifecycle status | `work_sessions.lifecycle_status` | Whether the session is active or closed and how it closed. |
 | Review/correction status | `work_sessions.review_status`, `correction_requests.status`, `session_anomalies.status` | Whether the session or request needs human review. |
-| Monitoring availability/status | `work_sessions.current_monitoring_status`, `monitoring_status_events.status` | Whether location verification is available, disabled, inconclusive, or stopped. |
+| Monitoring availability/status | `work_sessions.current_monitoring_status`, `monitoring_status_events.status` | Whether location verification is applicable, available, disabled, inconclusive, or stopped. |
 
 ## Circular Reference Approach
 
@@ -88,7 +90,8 @@ Represents one declared work period at one workplace.
 | `company_id` | Company scope. |
 | `lifecycle_status` | Active, closed_manual, closed_automatic, closed_admin, voided. |
 | `review_status` | Normal, anomaly_open, correction_pending, reviewed, corrected, disputed. |
-| `current_monitoring_status` | Pending, enabled, disabled_detected, permission_revoked_detected, unavailable, inconclusive, stopped. |
+| `current_monitoring_status` | Not applicable, pending, enabled, disabled_detected, permission_revoked_detected, unavailable, inconclusive, stopped. |
+| `location_context` | Factory/company premises, external worksite, or unspecified for legacy/admin-repair cases. |
 | `site_description` | Optional employee-entered workplace/project description. |
 | `started_at` | Server-accepted session start time in UTC. |
 | `ended_at` | Server-accepted session end time in UTC, nullable while active. |
@@ -99,6 +102,8 @@ Represents one declared work period at one workplace.
 
 Integrity rule: one employee must not have more than one active session at a time.
 
+Factory/company-premises sessions must be valid without GPS coordinates and should use monitoring status semantics equivalent to not applicable. External-worksite sessions may have check-in/check-out observations and later geofence evidence when approved.
+
 ### `session_events`
 
 Auditable event stream for each work session.
@@ -107,7 +112,7 @@ Auditable event stream for each work session.
 | --- | --- |
 | `id` | Stable event identifier. |
 | `work_session_id` | Session reference. |
-| `event_type` | Check-in, manual checkout, automatic checkout, admin closure, geofence exit, geofence enter, monitoring status, eight-hour notification, correction, export, or similar. |
+| `event_type` | Check-in, manual checkout, automatic checkout, admin closure, geofence exit, geofence enter, monitoring status, eight-hour notification, correction, report export, or similar. |
 | `source` | Employee app, admin app, system, backend, or platform callback. |
 | `device_observed_at` | Device timestamp when applicable. |
 | `callback_received_at` | App/backend callback or receipt timestamp when applicable. |
@@ -136,7 +141,7 @@ Minimized location evidence associated with a session event or monitoring state.
 | `server_received_at` | Server receipt timestamp in UTC. |
 | `raw_metadata` | Limited diagnostic metadata, only if needed and approved. |
 
-Location observations are not route tracking and should be collected only during active sessions.
+Location observations are not route tracking and should be collected only during active external-worksite sessions or approved verification workflows. Factory/company-premises sessions should not create location observations. If GPS is unavailable at external-worksite check-in, the record can represent that unavailability only after the business rule is approved; missing GPS must not be silently interpreted as verified attendance or automatic refusal.
 
 ### `monitoring_status_events`
 
@@ -146,7 +151,7 @@ Tracks whether on-duty verification is available.
 | --- | --- |
 | `id` | Stable status event identifier. |
 | `work_session_id` | Session reference. |
-| `status` | Pending, enabled, disabled_detected, permission_revoked_detected, unavailable, delayed, inconclusive, stopped. |
+| `status` | Not applicable, pending, enabled, disabled_detected, permission_revoked_detected, unavailable, delayed, inconclusive, stopped. |
 | `reason_code` | Machine-readable reason. |
 | `device_observed_at` | Device timestamp when applicable. |
 | `callback_received_at` | Callback or app/backend receipt timestamp when applicable. |
@@ -198,6 +203,22 @@ Records administrator decisions about disputed, unusual, or automatically closed
 
 Administrator-generated records about identifiable employees are still personal information and require approved retention rules.
 
+### Monthly attendance report calculation
+
+The V1 monthly employee-hours report should be calculated from `work_sessions`, approved `correction_requests`, `admin_decisions`, and relevant `session_events`.
+
+Calculation rules:
+
+- Filter and display by America/Toronto business time while storing timestamps in UTC.
+- Include completed sessions and approved corrections.
+- Support multiple sessions per day.
+- Allocate only the portion of a session that falls inside the selected calendar month.
+- Flag incomplete, disputed, and administratively corrected sessions.
+- Avoid double-counting corrected sessions by using one approved effective interval per session for reporting.
+- Do not calculate wages, taxes, payroll submission, automatic overtime, or unapproved break deductions.
+
+If the client later requires formal monthly approval, an approved summary or snapshot can be added to preserve the calculation result after detailed GPS evidence expires. Such a snapshot should reference the source records and approval decision rather than replacing the underlying audit trail.
+
 ### `audit_log`
 
 Security and administrative audit trail.
@@ -219,7 +240,7 @@ Logical representation of retention rules once approved.
 | Field | Notes |
 | --- | --- |
 | `id` | Stable policy identifier. |
-| `data_category` | Raw location observations, work sessions, correction requests, administrator decisions, security/audit logs, backups. |
+| `data_category` | Raw location observations, work sessions, monthly attendance summaries, correction requests, administrator decisions, security/audit logs, backups. |
 | `retention_days` | Nullable until approved. |
 | `policy_status` | Draft, approved, retired. |
 | `approved_by`, `approved_at` | Approval metadata when available. |
@@ -242,8 +263,10 @@ Logical representation of retention rules once approved.
 - Preserve original records when corrections are approved.
 - Do not store Supabase service-role credentials in mobile or web clients.
 - Stop creating location observations after a session is closed.
+- Do not create location observations for factory/company-premises sessions.
 - Treat unavailable location as a recorded status, not as absence.
 - Exclude detailed location trails from routine CSV exports.
+- Calculate monthly attendance totals from validated session intervals and approved corrections.
 
 ## Retention Design
 
@@ -251,8 +274,9 @@ Retention must be approved by business/legal stakeholders before production moni
 
 | Data Category | Candidate Rule |
 | --- | --- |
-| Raw location observations | Approximately 30 days, pending approval. |
-| Work sessions | Pending business/legal validation. |
+| Raw location observations | Configurable period pending business/legal approval; no universal 30-day deletion rule is approved. |
+| Work sessions | Pending business/legal validation; must support historical attendance reporting. |
+| Monthly attendance summaries | Pending business/legal validation; may need preservation after detailed GPS evidence expires. |
 | Correction requests | Pending business/legal validation. |
 | Administrator decisions | Pending business/legal validation; not assumed indefinite. |
 | Security/audit logs | Pending business/legal validation. |
@@ -270,8 +294,11 @@ Routine CSV exports should provisionally include:
 - Checkout source.
 - Session lifecycle status.
 - Review status.
+- Work location context.
 
 Routine exports should exclude detailed GPS/geofence trails unless a later approved export process specifically authorizes them.
+
+Monthly employee-hours CSV exports should include employee identity fields, selected month/year, total hours and minutes, and flags for incomplete, disputed, or corrected sessions.
 
 ## Open Data Decisions
 
@@ -279,6 +306,8 @@ Routine exports should exclude detailed GPS/geofence trails unless a later appro
 - Exact automatic checkout evidence schema after feasibility testing.
 - Whether `company_id` remains explicit in every table for future tenant isolation.
 - How much diagnostic metadata can be stored without exceeding data minimization goals.
+- Whether monthly attendance summaries require formal administrator approval before preservation.
+- Final lunch/break handling and whether unpaid break deductions are part of attendance reporting.
 - Backup retention and deletion workflow.
 
 ## Related Documents

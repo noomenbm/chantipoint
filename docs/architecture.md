@@ -5,6 +5,7 @@ This document describes the proposed technical architecture for ChantiPoint befo
 ## Goals
 
 - Support a French-language, single-company attendance and worksite-presence verification workflow.
+- Support digital attendance at both the company's factory/premises and external worksites.
 - Keep security and privacy controls server-enforced.
 - Prioritize Android development while preserving a later iOS path.
 - Move geofencing feasibility forward before major administrator-application investment.
@@ -16,7 +17,7 @@ This document describes the proposed technical architecture for ChantiPoint befo
 | Component | Candidate Technology | Responsibility |
 | --- | --- | --- |
 | Employee mobile app | Flutter and Dart | Authentication, manual check-in/out, active-session status, monitoring status, eight-hour notification, correction requests. |
-| Administrator app | Flutter Web | Employee management, session review, map review, anomaly review, automatic checkout review, correction approval, CSV export. |
+| Administrator app | Flutter Web | Employee management, session review, map review where coordinates exist, anomaly review, automatic checkout review, correction approval, monthly hours report, CSV export. |
 | Feasibility prototype | Isolated Android prototype using emulator simulated GPS | Validate geofence registration, exit/return events, candidate radii, delayed callback handling, simulated grace period, and cleanup before production investment. |
 | Authentication | Supabase Auth | User identity and session authentication after project approval. |
 | Database | Supabase PostgreSQL | Durable records for profiles, roles, sessions, events, correction requests, retention metadata, and audit history. |
@@ -29,6 +30,7 @@ This document describes the proposed technical architecture for ChantiPoint befo
 - Proposed technical designs, including geofencing and automatic checkout, require feasibility results and explicit approval before production use.
 - No real employee monitoring may begin before privacy, security, platform, and client release gates are satisfied.
 - The private feasibility prototype must use emulator or test data only.
+- Factory/company-premises attendance is digital time attendance only; it must not request location permissions, collect GPS coordinates, or register geofences.
 
 ## Security Boundaries
 
@@ -46,9 +48,9 @@ The exact Supabase implementation can use RPC, Edge Functions, or direct table o
 
 | Operation | Purpose | Notes |
 | --- | --- | --- |
-| `checkIn` | Start a work session after server validation. | Requires authenticated employee, location payload, optional description, and idempotency key. |
-| `checkOut` | Manually close an active session. | Records checkout source as manual and stops monitoring. |
-| `recordLocationEvent` | Store geofence or location-verification evidence. | Used only during an active session and subject to minimization and retention rules. |
+| `checkIn` | Start a work session after server validation. | Requires authenticated employee, selected location context, optional description, and idempotency key. Factory sessions do not include a location payload; external-worksite sessions include GPS payload when available. The external-worksite GPS-unavailable policy remains unresolved. |
+| `checkOut` | Manually close an active session. | Records checkout source as manual and stops monitoring if monitoring was active. Factory sessions do not request checkout GPS. |
+| `recordLocationEvent` | Store geofence or location-verification evidence. | Used only during an active external-worksite session and subject to minimization and retention rules. |
 | `recordMonitoringStatus` | Store monitoring enabled, disabled, unavailable, delayed, or stopped status. | Does not automatically prove absence. |
 | `evaluateAutomaticCheckout` | Server-side evaluation of approved automatic checkout rules. | Disabled until feasibility and approval gates pass. |
 | `notifyEightHourSession` | Notify an employee after eight hours of an active session. | Offers `Terminer la session` and `Continuer la session`; no automatic checkout solely from timeout. |
@@ -56,6 +58,8 @@ The exact Supabase implementation can use RPC, Edge Functions, or direct table o
 | `resolveCorrection` | Administrator approves or rejects a request. | Creates audit history and adjusted session facts if approved. |
 | `listSessions` | Review sessions by employee and date. | Admin scoped; employee scoped for self-view. |
 | `exportSessionsCsv` | Export basic operational records. | Includes employee ID/name, session ID, site description, times, duration, checkout source, session status, and review status. |
+| `listMonthlyEmployeeHours` | Calculate per-employee completed-session totals for a selected month. | Uses America/Toronto business time, approved corrections, and shared attendance calculation logic. |
+| `exportMonthlyEmployeeHoursCsv` | Export the monthly employee-hours report. | Operational attendance export only; excludes detailed GPS trails and does not perform payroll calculations. |
 
 ## Status Model
 
@@ -65,7 +69,9 @@ Separate statuses avoid overloading a single field:
 | --- | --- | --- |
 | Session lifecycle status | `active`, `closed_manual`, `closed_automatic`, `closed_admin`, `voided` | Describes whether the work session is active or closed and how it closed. |
 | Review status | `normal`, `anomaly_open`, `correction_pending`, `reviewed`, `corrected`, `disputed` | Describes human review and correction workflow. |
-| Monitoring status | `pending`, `enabled`, `disabled_detected`, `permission_revoked_detected`, `unavailable`, `inconclusive`, `stopped` | Describes whether on-duty verification can provide evidence. |
+| Monitoring status | `not_applicable`, `pending`, `enabled`, `disabled_detected`, `permission_revoked_detected`, `unavailable`, `inconclusive`, `stopped` | Describes whether on-duty verification can provide evidence. |
+
+Factory/company-premises sessions should normally use `stopped` or `not_applicable` monitoring semantics in implementation rather than pretending location monitoring is enabled.
 
 ## Session Lifecycle
 
@@ -106,14 +112,17 @@ Automatic checkout remains proposed. Before production use, rules must be approv
 ### Check-In
 
 1. Employee authenticates.
-2. Client obtains location and optional site description.
-3. Client sends `checkIn` with an idempotency key.
-4. Backend validates identity, rejects overlapping active sessions, stores the session and event, and returns confirmation.
-5. Client displays active session state and attempts to configure monitoring.
+2. Client requires the employee to choose factory/company premises or external worksite.
+3. For factory/company-premises sessions, the client records attendance data without requesting GPS.
+4. For external-worksite sessions, the client obtains location when available and an optional site description.
+5. If GPS is unavailable for an external-worksite session, the client must follow an approved business rule once defined rather than silently approving or rejecting the check-in.
+6. Client sends `checkIn` with an idempotency key.
+7. Backend validates identity, rejects overlapping active sessions, stores the session and event, and returns confirmation.
+8. Client displays active session state and attempts to configure monitoring only when the session is eligible for location verification.
 
 ### On-Duty Verification
 
-1. Client registers candidate monitoring for the active session.
+1. Client registers candidate monitoring only for approved external-worksite sessions.
 2. Geofence or location events are submitted only while the session is active.
 3. Backend stores minimized evidence and monitoring status.
 4. Automatic closure remains disabled until feasibility and approval gates are complete.
@@ -128,10 +137,22 @@ Automatic checkout remains proposed. Before production use, rules must be approv
 
 ### Check-Out
 
-1. Client obtains checkout location when available.
-2. Client sends `checkOut` with an idempotency key.
-3. Backend closes the active session and records checkout source.
-4. Client unregisters geofences or stops monitoring.
+1. Client sends `checkOut` with an idempotency key.
+2. Factory/company-premises checkout does not request GPS.
+3. External-worksite checkout may include checkout location when available and authorized.
+4. Backend closes the active session and records checkout source.
+5. Client unregisters geofences or stops monitoring if monitoring was active.
+
+### Monthly Employee-Hours Reporting
+
+1. Administrator selects a calendar month and year.
+2. Backend filters session intervals using America/Toronto business time and UTC-safe stored timestamps.
+3. Backend calculates completed-session durations from validated sessions and approved corrections.
+4. Sessions crossing midnight or month boundaries contribute only the portion inside the selected month.
+5. Incomplete, disputed, or administratively corrected sessions are flagged for review.
+6. Administrator views totals in hours and minutes and can export the same report as CSV.
+
+The calculation logic should be reusable for possible future daily or weekly reports without creating separate reporting systems.
 
 ## Future Offline Extension Points
 
@@ -150,6 +171,7 @@ Offline synchronization is out of scope for V1. To avoid blocking future support
 - Correction approvals and administrative edits must preserve who changed what, when, and why.
 - Monitoring failures should be observable as session events, not hidden client logs only.
 - Export operations should be auditable because they may expose employee data.
+- Monthly attendance reports should be reproducible from validated attendance records and approved corrections; if approved monthly summaries are later preserved, they should reference the calculation inputs and approval decision.
 
 ## Related Documents
 

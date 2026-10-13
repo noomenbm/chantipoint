@@ -1,8 +1,8 @@
 # ChantiPoint
 
-ChantiPoint is a French-language Flutter application for employee attendance and worksite-presence verification. The initial product is intended to help a designated manager review whether an employee's phone remained near the declared workplace during an active work session.
+ChantiPoint is a French-language Flutter application for digital employee attendance and external-worksite presence verification. The initial product records check-ins/check-outs at the company's factory/premises and at external worksites, and may later help a designated manager review whether an employee's phone remained near a declared external worksite during an active work session.
 
-Location evidence must be treated as limited evidence from a device, not as certain proof of physical employee presence or work performed.
+Factory attendance does not use GPS. External-worksite location evidence must be treated as limited evidence from a device, not as certain proof of physical employee presence or work performed.
 
 ## Engineering Documentation
 
