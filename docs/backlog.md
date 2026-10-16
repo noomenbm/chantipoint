@@ -1,6 +1,6 @@
 # ChantiPoint Backlog v0.1
 
-This backlog is intentionally small and incremental for one developer working approximately 5-7 hours per week. It is documentation for planning only; no production feature implementation starts until these documents are reviewed.
+This backlog is intentionally small and incremental for one developer working approximately 5-7 hours per week. It describes the target scope; see [Development Status](development-status.md) for the implemented subset and verification results. M2.1 backend foundation and M2.2 Flutter authentication are complete; the full M2 attendance slice remains open.
 
 ## Milestone Order
 
@@ -14,13 +14,13 @@ This backlog is intentionally small and incremental for one developer working ap
 | M5 | Approved location-verification integration | REQ-LOC-001 through REQ-LOC-008, REQ-PRIV-001 through REQ-PRIV-004 | Starts only if feasibility, privacy, platform, and client approval gates pass. |
 | M6 | Security, privacy, testing, pilot hardening, and release | All approved P0/P1 requirements | Pilot-ready Android build, documented operations, validated access controls, retention rules, and support process. |
 
-## Suggested Next Implementation Milestone
+## Next Implementation Slice
 
-M1 is complete as an emulator feasibility spike on `spike/android-geofencing` at commit `96e27bb`. The spike supports continued investigation but does not validate production geofencing.
+M2.1 is deployed to `chantipoint-dev` with 70 local pgTAP tests passed. M2.2 authentication is complete with 62 Flutter tests, static analysis, and developer-verified Android/hosted login checks. Public signup is disabled; the current development account is fictional. Administrator provisioning and invitation management remain future M3 work.
 
-Start M2 next: Supabase authentication and the manual attendance vertical slice.
+Continue M2 with manual factory check-in/check-out and a server-confirmed active-session display (BL-017 through BL-020). Factory attendance must never request GPS. Client retries must reuse the original idempotency key and payload. Then address the remaining external-worksite flow once its missing-GPS business rule is resolved.
 
-Acceptance criteria:
+Broader M2 acceptance criteria:
 
 - Authenticated employee can select `À l'usine` or `Chantier extérieur` at check-in.
 - Factory/company-premises sessions record timestamps only and do not request location permissions or GPS.
@@ -28,7 +28,7 @@ Acceptance criteria:
 - Server acknowledgement is required before the employee sees an active session.
 - Overlapping active sessions and duplicate commands are rejected or deduplicated server-side.
 
-This milestone intentionally does not implement production geofencing or automatic checkout.
+Production geofencing and automatic checkout remain deferred. M1 emulator findings support investigation only; real-device reliability and approval gates remain open. M3 administrator account management and review follow the manual attendance slice.
 
 ## Detailed Tasks
 
@@ -39,7 +39,7 @@ This milestone intentionally does not implement production geofencing or automat
 | BL-003 | Confirm privacy and legal release gates. | REQ-PRIV-001 through REQ-PRIV-004 | Client/legal input | EFVP, notice, BYOD, retention, and access responsibilities have owners. |
 | BL-004 | Create isolated Android geofence prototype plan. | REQ-LOC-001, REQ-LOC-002 | M0 review | Prototype scope excludes production data and real employees. |
 | BL-005 | Configure emulator simulated GPS test workflow. | REQ-LOC-002 | BL-004 | Simulated location movement can be repeated and documented. |
-| BL-006 | Test geofence registration at 100m and document 150m status. | REQ-LOC-001, REQ-LOC-003 | BL-005 | 100m registration success/failure is recorded; if 150m is not separately tested, that limitation is explicit. |
+| BL-006 | Test geofence registration at both 100m and 150m. | REQ-LOC-001, REQ-LOC-003 | BL-005 | Record registration success/failure for both radii. 100m: tested in M1; 150m: still pending validation. |
 | BL-007 | Test simulated exit and return callbacks. | REQ-LOC-003, REQ-DATA-005 | BL-006 | Callback/receipt timestamp is captured; original event timestamp is recorded only if supplied and otherwise marked unavailable. |
 | BL-008 | Test delayed event and 10-minute grace simulation. | REQ-LOC-003, REQ-LOC-004 | BL-007 | Simulated grace-period behavior is measurable and documented. |
 | BL-009 | Test disabled or unavailable monitoring states. | REQ-LOC-006, REQ-LOC-008 | BL-006 | Permission/location-disabled/unavailable states do not become false absence assertions. |

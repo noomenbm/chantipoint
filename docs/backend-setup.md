@@ -1,14 +1,16 @@
 # ChantiPoint Backend Setup v0.1
 
-This guide covers the local Supabase database foundation prepared for M2.1. It is a review artifact: do not apply it to `chantipoint-dev` until the migration and tests have been reviewed.
+This guide covers the deployed M2.1 Supabase foundation and the M2.2 Flutter authentication setup. The initial migration has been deployed to the hosted development project `chantipoint-dev`. See [Development Status](development-status.md) for completed checks, remaining implementation work, and release limitations.
 
 ## Current State
 
 - Branch: `feature/manual-attendance`.
-- Supabase CLI v2.120.0 is available locally and `supabase/config.toml` has been created with `supabase init`.
-- The migration and tests were created manually under the standard `supabase/` directory before applying them to the local stack.
-- No hosted Supabase project was linked or modified.
-- No application code, real employee accounts, secrets, or Supabase resources were changed.
+- The initial migration `20261013000100_initial_attendance_foundation.sql` is deployed to hosted `chantipoint-dev`; 70 local pgTAP tests passed.
+- Flutter authentication is complete for M2.2; 62 automated Flutter tests and static analysis passed.
+- The developer verified Android launch, hosted login, active employee profile/role recognition, logout, session restoration after task removal and Force stop, access removal on resume after profile disabling, and login after re-enabling the profile.
+- The account used for hosted-development checks is fictional. The app's administrator provisioning and employee invitation workflow are not implemented.
+- Public signup is disabled. V1 uses administrator-invited accounts.
+- The wider manual attendance UI and later administrator features remain pending; these checks do not establish production readiness.
 
 Official Supabase guidance used for this slice:
 
@@ -19,9 +21,11 @@ Official Supabase guidance used for this slice:
 
 ## Migration Order
 
-Apply migrations in filename order:
+The initial migration is already deployed to `chantipoint-dev`:
 
 1. `supabase/migrations/20261013000100_initial_attendance_foundation.sql`
+
+Keep this versioned migration as the baseline. Future schema changes require new migrations, local validation, and explicit approval before hosted deployment.
 
 This first migration creates only the minimal M2 foundation:
 
@@ -97,36 +101,38 @@ Factory attendance remains independent of GPS permissions and availability.
 
 ## Local Prerequisites
 
-Install later, outside this task:
+- Flutter/Dart is required for app development.
+- Supabase CLI and Docker are needed only for local database work and pgTAP validation. Hosted-development login does not require a local stack.
+- On the 8 GB development computer, keep Docker and the emulator stopped unless needed; stop expensive operations if C: free space falls below 5 GB.
 
-- Supabase CLI
-- Docker or a Docker-compatible local runtime
-- Flutter/Dart tooling for later app work
+## Flutter Configuration
 
-Environment variable names that may be needed later:
+Pass `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` using `flutter run --dart-define` as shown in [Run the Flutter App](../README.md#run-the-flutter-app). These are compile-time Dart values; setting shell variables without forwarding them does not configure the app.
 
-- `SUPABASE_URL`
-- `SUPABASE_ANON_KEY`
-- `SUPABASE_DB_PASSWORD`
+**Use the base Supabase project URL, such as `https://<project-ref>.supabase.co`, without `/rest/v1/` or any other API endpoint path.** Use the project's publishable client key. The existing code also accepts `SUPABASE_ANON_KEY` as a legacy fallback, but new run instructions use `SUPABASE_PUBLISHABLE_KEY`.
 
-Do not commit service-role keys or access tokens.
+Never pass service-role keys, database passwords, or user access tokens to Flutter. Keep actual configuration values and all account credentials out of documentation and source control.
 
 ## Invitation-Only Authentication
 
-Local `supabase/config.toml` disables public signup with `auth.enable_signup = false` and `auth.email.enable_signup = false`. SMS signup is also disabled. Hosted Supabase Auth settings must be reviewed separately before applying migrations; do not assume the local config has changed `chantipoint-dev`.
+Public signup is disabled in hosted `chantipoint-dev`, and V1 uses administrator-invited accounts. Local `supabase/config.toml` also disables public signup with `auth.enable_signup = false` and `auth.email.enable_signup = false`; SMS signup is disabled too. Hosted Auth settings are managed separately: database deployment does not apply the local Auth configuration.
 
-Account flow for V1:
+Current implementation:
 
-- The trusted primary administrator is bootstrapped through a controlled Supabase/backend procedure.
-- Jamel is the intended primary administrator for JMService, but the database does not hardcode his identity or credentials.
-- Administrators invite employee accounts using trusted admin/backend functionality.
-- Employees activate invited accounts and set or reset their own credentials through Supabase Auth.
-- Mobile and web clients use user-scoped credentials only; never embed service-role keys in Flutter clients.
-- Development test users must be fictional and created locally or through reviewed non-production procedures.
+- Flutter supports password login and logout for accounts already provisioned through trusted backend administration, with active profile/role authorization and session revalidation.
+- The account used for hosted-development checks is fictional. Do not record its email, identifiers, password, or tokens here.
+- Initial administrator provisioning, administrator-driven invitations, and account activation/credential-management screens are not implemented in the app.
+
+Planned V1 account flow:
+
+- Bootstrap the primary administrator through a controlled backend procedure, with no hardcoded identity or recovery credential.
+- Let administrators invite employees through trusted backend functionality; employees activate invited accounts and manage their own credentials through Supabase Auth.
+- Keep clients on user-scoped authentication, with no service-role credentials in Flutter.
+- Use only fictional accounts in development.
 
 ## Local Validation Commands
 
-After installing the Supabase CLI and Docker:
+For deliberate local database validation only, with Supabase CLI and Docker available:
 
 ```powershell
 supabase start --exclude gotrue,realtime,storage-api,imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
@@ -134,27 +140,26 @@ supabase db reset
 supabase test db
 ```
 
-The long `--exclude` list starts only the local database container needed for migrations and pgTAP tests.
+The long `--exclude` list starts only the local database container needed for migrations and pgTAP tests. The reset command is for the disposable local database. These tests passed for M2.1; running them is separate from Flutter authentication checks. Stop the local stack when database validation is finished.
 
-Do not run `supabase link`, `supabase db push`, or any remote mutation until the human developer approves the reviewed migration.
+Do not run `supabase link`, `supabase db push`, or any hosted mutation without explicit human approval for that operation.
 
-## Hosted Dev Apply Procedure
+## Future Hosted Dev Changes
 
-After review only:
+The initial migration is already deployed. For future changes, after review and explicit approval:
 
-1. Confirm the target project is the intended development project, `chantipoint-dev`.
-2. Confirm no real employee data is present.
-3. Link the project locally with the Supabase CLI.
-4. Apply migrations to the development project through the approved Supabase workflow.
-5. Run the RLS and attendance tests against a disposable local database first; remote validation should use fictional accounts only.
+1. Confirm the target is the intended development project, `chantipoint-dev`, and use only fictional test data.
+2. Prepare a new versioned migration and validate it with the existing migrations and pgTAP suite against a disposable local database.
+3. Check the intended project link and pending migration history before applying reviewed changes through the approved workflow.
+4. Validate affected behavior using fictional development accounts. Review hosted Auth settings separately if authentication configuration changes are approved.
 
 ## Safe Provisioning Plan
 
-Initial administrator provisioning should be performed only by a trusted backend operator using Supabase Dashboard SQL, a reviewed migration/seed for non-production, or a future controlled admin-provisioning function. The mobile and web clients must never receive service-role credentials.
+The application administrator provisioning workflow is not implemented. Until a reviewed workflow exists, any explicitly approved initial provisioning must be performed only by a trusted backend operator using Supabase Dashboard SQL, a reviewed migration/seed for non-production, or a future controlled admin-provisioning function. The mobile and web clients must never receive service-role credentials.
 
 The company must always retain at least one active administrator. If ordinary admin operations accidentally remove every administrator or the primary administrator loses access, recovery should use trusted Supabase/backend administration after identity verification and audit logging. Do not create a hidden permanent bypass account or hardcoded recovery credential.
 
-For development testing:
+For future development-account provisioning, when explicitly approved:
 
 - Create fictional Supabase Auth users.
 - Insert matching `user_profiles`.

@@ -1,13 +1,58 @@
 # ChantiPoint
 
-ChantiPoint is a French-language Flutter application for digital employee attendance and external-worksite presence verification. The initial product records check-ins/check-outs at the company's factory/premises and at external worksites, and may later help a designated manager review whether an employee's phone remained near a declared external worksite during an active work session.
+ChantiPoint is an Android-first, French-language Flutter attendance application for JMService, using Supabase Auth and PostgreSQL with Row Level Security (RLS).
 
-Factory attendance does not use GPS. External-worksite location evidence must be treated as limited evidence from a device, not as certain proof of physical employee presence or work performed.
+The current Flutter app provides authentication and an authenticated placeholder screen. Manual attendance UI is the next development slice. Factory attendance must never request location permissions or collect GPS. Future external-worksite location evidence is limited evidence from a device, not certain proof of employee presence or work performed.
+
+## Current Development State
+
+- **M2.1 complete:** the initial database foundation is deployed to the hosted development project `chantipoint-dev`; 70 local pgTAP tests passed.
+- **M2.2 complete:** Flutter authentication and reliability improvements are implemented; 62 automated Flutter tests and static analysis passed.
+- Android emulator launch, hosted login, profile/role recognition, logout, session persistence, and disabled-profile checks were verified by the developer. See [Development Status](docs/development-status.md) for the recorded checks and remaining work.
+- Public signup is disabled. V1 uses administrator-invited accounts. The account used for current development checks is fictional; administrator provisioning and the employee invitation workflow are not implemented in the app.
+
+Requirements v0.1 remain a draft. Completed development checks do not establish production readiness; privacy, business rules, operational controls, and location feasibility still have open decisions.
+
+## Run the Flutter App
+
+Use an existing, trusted-provisioned fictional development account. Install Flutter/Dart and resolve dependencies:
+
+```powershell
+flutter pub get
+```
+
+Supply the project URL and publishable client key as build-time Dart defines. Replace these placeholders locally; do not put account credentials or actual configuration values into this documentation:
+
+```powershell
+$env:SUPABASE_URL = 'https://<project-ref>.supabase.co'
+$env:SUPABASE_PUBLISHABLE_KEY = '<publishable-key>'
+flutter run `
+  --dart-define="SUPABASE_URL=$env:SUPABASE_URL" `
+  --dart-define="SUPABASE_PUBLISHABLE_KEY=$env:SUPABASE_PUBLISHABLE_KEY"
+```
+
+**`SUPABASE_URL` must be the base project URL, with no `/rest/v1/` or other API endpoint path.** The SDK constructs its Auth and database endpoints from this base URL. Shell environment variables alone are not Dart defines; the command above forwards them explicitly.
+
+Without the required defines, the app displays the French `Configuration requise` screen. Use only the publishable client key in Flutter; never supply service-role keys, database passwords, or user access tokens.
+
+Hosted-development authentication does not require local Docker. Start an Android target only when needed for an app check. Avoid unnecessary Gradle builds, SDK downloads, and cache cleaning on the development computer.
+
+## Validation
+
+With dependencies already resolved:
+
+```powershell
+flutter analyze --no-pub
+flutter test --no-pub --concurrency=1
+git diff --check
+```
+
+The single test worker limits memory use. Local database tests require a separate database-only Supabase stack; see [Backend Setup](docs/backend-setup.md). Keep Docker and the emulator stopped when they are not needed, and stop expensive operations if C: free space falls below 5 GB.
 
 ## Engineering Documentation
 
-The project is currently in draft Requirements Specification v0.1. Feature implementation should not begin until the documentation is reviewed and the first approved implementation milestone is selected.
-
+- [Development Status](docs/development-status.md)
+- [Backend Setup](docs/backend-setup.md)
 - [Requirements](docs/requirements.md)
 - [Architecture](docs/architecture.md)
 - [Logical Data Model](docs/data-model.md)
@@ -17,26 +62,3 @@ The project is currently in draft Requirements Specification v0.1. Feature imple
 - [Client Questions in French](docs/client-questions-fr.md)
 - [ADR 0001: Technology Stack](docs/decisions/0001-technology-stack.md)
 - [ADR 0002: Location Monitoring](docs/decisions/0002-location-monitoring.md)
-
-## Getting Started
-
-This repository currently contains the initial Flutter starter application.
-
-Useful local commands:
-
-```sh
-flutter pub get
-flutter analyze
-flutter test
-flutter run
-```
-
-A few resources to get you started if this is your first Flutter project:
-
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.

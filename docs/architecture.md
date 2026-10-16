@@ -1,6 +1,6 @@
 # ChantiPoint Architecture v0.1
 
-This document describes the proposed technical architecture for ChantiPoint before feature development. It is a planning artifact, not an implementation record or signed specification.
+This document describes ChantiPoint's target architecture. M2.1 backend foundation is deployed to `chantipoint-dev`, and M2.2 Flutter authentication is complete. See [Development Status](development-status.md) for verification and remaining work; the broader components and workflows below include planned features and do not establish production readiness.
 
 ## Goals
 
@@ -19,7 +19,7 @@ This document describes the proposed technical architecture for ChantiPoint befo
 | Employee mobile app | Flutter and Dart | Authentication, manual check-in/out, active-session status, monitoring status, eight-hour notification, correction requests. |
 | Administrator app | Flutter Web | Employee management, session review, map review where coordinates exist, anomaly review, automatic checkout review, correction approval, monthly hours report, CSV export. |
 | Feasibility prototype | Isolated Android prototype using emulator simulated GPS | Validate geofence registration, exit/return events, candidate radii, delayed callback handling, simulated grace period, and cleanup before production investment. |
-| Authentication | Supabase Auth | User identity and session authentication after project approval. |
+| Authentication | Supabase Auth | Implemented Flutter login, session restoration, authorization revalidation, and logout; public signup is disabled and administrator invitation/provisioning workflows remain planned. |
 | Database | Supabase PostgreSQL | Durable records for profiles, roles, sessions, events, correction requests, retention metadata, and audit history. |
 | Authorization | PostgreSQL Row Level Security and server-side operations | Enforce employee/admin access rules and protect location data. |
 | Secure operations | Supabase Edge Functions or Postgres RPC where appropriate | Idempotent session commands, automatic closure candidates, exports, and privileged administrative operations. |
@@ -44,7 +44,7 @@ This document describes the proposed technical architecture for ChantiPoint befo
 
 ## Logical API Boundaries
 
-The exact Supabase implementation can use RPC, Edge Functions, or direct table operations protected by RLS. The logical command boundary should remain stable:
+M2.1 implements attendance mutations through `check_in` and `check_out` Postgres RPCs, with RLS-protected reads; their Flutter UI remains to be implemented. Later operations may use RPCs or Edge Functions as appropriate. The table below describes target logical boundaries, including future features:
 
 | Operation | Purpose | Notes |
 | --- | --- | --- |

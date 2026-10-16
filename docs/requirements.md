@@ -1,6 +1,6 @@
 # ChantiPoint Requirements Specification v0.1
 
-This document defines draft product requirements for ChantiPoint before feature development. Documentation version `v0.1` is not the application software version and is not a signed specification.
+This document defines draft product requirements for ChantiPoint. Documentation version `v0.1` is not the application software version and is not a signed specification. See [Development Status](development-status.md) for the implemented subset and completed verification; the full target scope below is not yet implemented.
 
 ChantiPoint is a French-language employee attendance and worksite-presence verification application for one company operating primarily in the Montreal, Quebec region. It initially targets approximately 31-100 employees using personal smartphones. Android is the initial development and deployment priority; iOS remains a future target.
 
@@ -26,7 +26,8 @@ The application has two related purposes. First, it replaces manual paper attend
 - Initial deployment is for one company with approximately 31-100 employees.
 - Employees use personal smartphones (BYOD), and the Android/iOS mix is not yet known.
 - Android is the first deployment priority; iOS remains a later target requiring separate validation.
-- Supabase is the planned backend candidate, but no Supabase project, schema, or migration exists yet.
+- Supabase Auth and PostgreSQL/RLS are implemented for the initial foundation; the first migration is deployed to `chantipoint-dev` and Flutter authentication is complete for M2.2.
+- Public signup is disabled; V1 uses administrator-invited accounts. Current hosted-development checks use a fictional employee account. Application administrator provisioning and invitation management remain to be implemented.
 - Flutter Web is the initial preferred candidate for administration.
 - One designated administrator initially reviews employee sessions, anomalies, automatic checkouts, and correction requests.
 - The role model should allow additional authorized administrators later without major restructuring.
