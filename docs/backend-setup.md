@@ -10,7 +10,7 @@ This guide covers the deployed M2.1 Supabase foundation and the M2.2 Flutter aut
 - The developer verified Android launch, hosted login, active employee profile/role recognition, logout, session restoration after task removal and Force stop, access removal on resume after profile disabling, and login after re-enabling the profile.
 - The account used for hosted-development checks is fictional. The app's administrator provisioning and employee invitation workflow are not implemented.
 - Public signup is disabled. V1 uses administrator-invited accounts.
-- The wider manual attendance UI and later administrator features remain pending; these checks do not establish production readiness.
+- M2.3a factory check-in and checkout are implemented and developer-verified against hosted `chantipoint-dev`; external-worksite attendance and later administrator features remain pending. These checks do not establish production readiness.
 
 Official Supabase guidance used for this slice:
 
@@ -112,6 +112,8 @@ Pass `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` using `flutter run --dart-def
 **Use the base Supabase project URL, such as `https://<project-ref>.supabase.co`, without `/rest/v1/` or any other API endpoint path.** Use the project's publishable client key. The existing code also accepts `SUPABASE_ANON_KEY` as a legacy fallback, but new run instructions use `SUPABASE_PUBLISHABLE_KEY`.
 
 Never pass service-role keys, database passwords, or user access tokens to Flutter. Keep actual configuration values and all account credentials out of documentation and source control.
+
+Business time is application-configured in `lib/src/config/business_time_config.dart` as `America/Montreal`; its French display label is separate. The shared `business_time.dart` module uses the installed IANA `latest_all.dart` data to resolve this alias and accepts explicit identifiers for future regions. Keep database/session timestamps in UTC; this display configuration does not require a migration or a hosted setting. Database-configurable company timezones are not implemented. Future monthly reports must derive calendar-month boundaries in the configured timezone with DST rules, convert those boundaries to UTC for filtering, and calculate elapsed durations from UTC instants.
 
 ## Invitation-Only Authentication
 

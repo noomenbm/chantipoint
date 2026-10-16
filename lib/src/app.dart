@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'auth/auth_controller.dart';
+import 'attendance/attendance_controller.dart';
 import 'config/supabase_environment_config.dart';
 import 'ui/auth_gate.dart';
 
@@ -8,9 +9,11 @@ class ChantiPointApp extends StatelessWidget {
   const ChantiPointApp({
     super.key,
     required this.authController,
+    this.attendanceControllerFactory,
   });
 
   final AuthController authController;
+  final AttendanceControllerFactory? attendanceControllerFactory;
 
   @override
   Widget build(BuildContext context) {
@@ -18,7 +21,10 @@ class ChantiPointApp extends StatelessWidget {
       title: 'ChantiPoint',
       debugShowCheckedModeBanner: false,
       theme: _buildTheme(),
-      home: AuthGate(authController: authController),
+      home: AuthGate(
+        authController: authController,
+        attendanceControllerFactory: attendanceControllerFactory,
+      ),
     );
   }
 
@@ -35,19 +41,14 @@ class ChantiPointApp extends StatelessWidget {
         border: OutlineInputBorder(),
       ),
       filledButtonTheme: FilledButtonThemeData(
-        style: FilledButton.styleFrom(
-          minimumSize: const Size.fromHeight(48),
-        ),
+        style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
       ),
     );
   }
 }
 
 class ConfigurationRequiredApp extends StatelessWidget {
-  const ConfigurationRequiredApp({
-    super.key,
-    required this.config,
-  });
+  const ConfigurationRequiredApp({super.key, required this.config});
 
   final SupabaseEnvironmentConfig config;
 
@@ -57,9 +58,7 @@ class ConfigurationRequiredApp extends StatelessWidget {
       title: 'ChantiPoint',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF126E82),
-        ),
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF126E82)),
         useMaterial3: true,
       ),
       home: Scaffold(

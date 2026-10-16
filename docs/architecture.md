@@ -44,7 +44,7 @@ This document describes ChantiPoint's target architecture. M2.1 backend foundati
 
 ## Logical API Boundaries
 
-M2.1 implements attendance mutations through `check_in` and `check_out` Postgres RPCs, with RLS-protected reads; their Flutter UI remains to be implemented. Later operations may use RPCs or Edge Functions as appropriate. The table below describes target logical boundaries, including future features:
+M2.1 implements attendance mutations through `check_in` and `check_out` Postgres RPCs, with RLS-protected reads; M2.3a implements their factory attendance Flutter UI. The external-worksite client flow remains planned. Later operations may use RPCs or Edge Functions as appropriate. The table below describes target logical boundaries, including future features:
 
 | Operation | Purpose | Notes |
 | --- | --- | --- |
@@ -58,8 +58,16 @@ M2.1 implements attendance mutations through `check_in` and `check_out` Postgres
 | `resolveCorrection` | Administrator approves or rejects a request. | Creates audit history and adjusted session facts if approved. |
 | `listSessions` | Review sessions by employee and date. | Admin scoped; employee scoped for self-view. |
 | `exportSessionsCsv` | Export basic operational records. | Includes employee ID/name, session ID, site description, times, duration, checkout source, session status, and review status. |
-| `listMonthlyEmployeeHours` | Calculate per-employee completed-session totals for a selected month. | Uses America/Toronto business time, approved corrections, and shared attendance calculation logic. |
+| `listMonthlyEmployeeHours` | Calculate per-employee completed-session totals for a selected month. | Uses the configured business timezone (currently America/Montreal), DST-aware calendar-month boundaries, approved corrections, and shared attendance calculation logic. |
 | `exportMonthlyEmployeeHoursCsv` | Export the monthly employee-hours report. | Operational attendance export only; excludes detailed GPS trails and does not perform payroll calculations. |
+
+## Business Time
+
+`lib/src/config/business_time_config.dart` centralizes JMService's IANA identifier `America/Montreal` and its separate French display label `heure de Montréal`. `lib/src/time/business_time.dart` resolves IANA locations, converts UTC instants through `toBusinessTime`, and formats employee timestamps through `formatBusinessTime`. Both conversion and formatting accept an explicit IANA identifier; formatting can receive a separate display label. Device timezone settings do not select the business clock.
+
+The existing `timezone` package uses `latest_all.dart` because its default database excludes `America/Montreal`, an IANA backward-compatible alias for `America/Toronto`. The configured identifier stays `America/Montreal`. An unknown identifier fails explicitly; configuration is never silently changed to another zone. Database initialization occurs once per Dart isolate. There is no timezone settings UI, database timezone configuration, or multi-company timezone workflow.
+
+Persisted session timestamps and command payloads stay in UTC. Conversion is a display/calendar view of the same instant. Elapsed durations must use UTC instants rather than naive local clock subtraction; local hours may be skipped or repeated at DST transitions. Future reporting must use the same configured IANA timezone policy for calendar boundaries and display.
 
 ## Status Model
 
@@ -146,8 +154,8 @@ Automatic checkout remains proposed. Before production use, rules must be approv
 ### Monthly Employee-Hours Reporting
 
 1. Administrator selects a calendar month and year.
-2. Backend filters session intervals using America/Toronto business time and UTC-safe stored timestamps.
-3. Backend calculates completed-session durations from validated sessions and approved corrections.
+2. Backend derives the selected month's local start and the next month's local start in the configured business timezone (currently America/Montreal), then converts each boundary to UTC for a half-open reporting interval. Apply IANA DST rules rather than a fixed offset or a fixed number of 24-hour days.
+3. Backend calculates elapsed completed-session durations from UTC instants in validated sessions and approved corrections.
 4. Sessions crossing midnight or month boundaries contribute only the portion inside the selected month.
 5. Incomplete, disputed, or administratively corrected sessions are flagged for review.
 6. Administrator views totals in hours and minutes and can export the same report as CSV.

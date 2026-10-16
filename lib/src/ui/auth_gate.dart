@@ -3,14 +3,20 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../auth/auth_controller.dart';
+import '../attendance/attendance_controller.dart';
 import 'access_check_screen.dart';
 import 'authenticated_home_screen.dart';
 import 'login_screen.dart';
 
 class AuthGate extends StatefulWidget {
-  const AuthGate({super.key, required this.authController});
+  const AuthGate({
+    super.key,
+    required this.authController,
+    this.attendanceControllerFactory,
+  });
 
   final AuthController authController;
+  final AttendanceControllerFactory? attendanceControllerFactory;
 
   @override
   State<AuthGate> createState() => _AuthGateState();
@@ -18,6 +24,7 @@ class AuthGate extends StatefulWidget {
 
 class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
   AppLifecycleState? _lastLifecycleState;
+  int _attendanceRevision = 0;
 
   @override
   void initState() {
@@ -32,6 +39,9 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
     final previous = _lastLifecycleState;
     _lastLifecycleState = state;
     if (state == AppLifecycleState.resumed && previous != state) {
+      // Recreate attendance after resume even if fast auth states coalesce
+      // before the next frame and the old home screen would otherwise survive.
+      ++_attendanceRevision;
       unawaited(widget.authController.revalidateOnResume());
     }
   }
@@ -81,8 +91,12 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
             onSignIn: widget.authController.signIn,
           ),
           AuthStatus.authenticated => AuthenticatedHomeScreen(
+            key: ValueKey(
+              '${state.user!.companyId}:${state.user!.profileId}:$_attendanceRevision',
+            ),
             user: state.user!,
             onSignOut: widget.authController.signOut,
+            attendanceControllerFactory: widget.attendanceControllerFactory,
           ),
         };
       },

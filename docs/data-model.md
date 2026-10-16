@@ -5,7 +5,7 @@ This document defines the initial logical model only. It is not a SQL migration,
 ## Design Principles
 
 - Keep employees, roles, sessions, events, observations, monitoring status, review status, corrections, retention, and audit history separate.
-- Store timestamps in UTC and display business time in America/Toronto.
+- Store timestamps in UTC and display the configured business time, currently America/Montreal for JMService. The application centralizes IANA conversion and separate display labels; database-configurable company timezones are not implemented.
 - Preserve device-observed timestamps, callback/receipt timestamps, and server-accepted timestamps separately.
 - Record GPS accuracy where available for external-worksite location evidence.
 - Support factory/company-premises sessions without GPS coordinates or location observations.
@@ -209,7 +209,7 @@ The V1 monthly employee-hours report should be calculated from `work_sessions`, 
 
 Calculation rules:
 
-- Filter and display by America/Toronto business time while storing timestamps in UTC.
+- Derive calendar-month boundaries in the configured business timezone (currently America/Montreal) with IANA DST rules, then convert them to UTC for filtering; display in business time while retaining UTC storage. Calculate elapsed durations from UTC instants rather than naive local clock times.
 - Include completed sessions and approved corrections.
 - Support multiple sessions per day.
 - Allocate only the portion of a session that falls inside the selected calendar month.

@@ -18,7 +18,9 @@ This backlog is intentionally small and incremental for one developer working ap
 
 M2.1 is deployed to `chantipoint-dev` with 70 local pgTAP tests passed. M2.2 authentication is complete with 62 Flutter tests, static analysis, and developer-verified Android/hosted login checks. Public signup is disabled; the current development account is fictional. Administrator provisioning and invitation management remain future M3 work.
 
-Continue M2 with manual factory check-in/check-out and a server-confirmed active-session display (BL-017 through BL-020). Factory attendance must never request GPS. Client retries must reuse the original idempotency key and payload. Then address the remaining external-worksite flow once its missing-GPS business rule is resolved.
+M2.3a implements factory check-in/check-out and a server-confirmed active-session display (the factory subset of BL-017 through BL-020); the developer verified both commands against hosted development. Factory attendance must never request GPS. Client retries must reuse the original idempotency key and payload. Continue with the remaining external-worksite flow once its missing-GPS business rule is resolved.
+
+Business-time handling is centralized in application configuration and reusable IANA conversion/formatting, with `America/Montreal` for JMService and a separate French display label. Other IANA regions can use the same logic; database-configurable company timezones and timezone settings UI are not implemented. Future reports must use this configured timezone policy.
 
 Broader M2 acceptance criteria:
 
@@ -61,7 +63,7 @@ Production geofencing and automatic checkout remain deferred. M1 emulator findin
 | BL-024 | Add correction request submission. | REQ-EMP-006 | BL-018 | Employee can submit a request without altering original records. |
 | BL-025 | Add correction review and audit. | REQ-ADM-005 | BL-024 | Administrator approval/rejection creates audit history and review status. |
 | BL-026 | Add eight-hour active-session notification. | REQ-EMP-007 | BL-019, notification channel decision | Employee can choose checkout or continue; no-response behavior remains controlled by approved policy. |
-| BL-027 | Add monthly employee-hours report and CSV export. | REQ-ADM-006, REQ-ADM-008 through REQ-ADM-010, REQ-DATA-008 | BL-021, BL-025 | Administrator selects month/year, sees per-employee totals in hours/minutes, flags incomplete/disputed/corrected sessions, and exports CSV without detailed location trails. |
+| BL-027 | Add monthly employee-hours report and CSV export. | REQ-ADM-006, REQ-ADM-008 through REQ-ADM-010, REQ-DATA-008 | BL-021, BL-025 | Administrator selects month/year; calendar-month boundaries use the configured business timezone (currently America/Montreal) and IANA DST rules before conversion to UTC. Totals use elapsed UTC intervals, handle cross-month sessions, flag incomplete/disputed/corrected sessions, and export CSV without detailed location trails. |
 | BL-028 | Define and implement approved retention controls. | REQ-PRIV-003, REQ-PRIV-004 | Privacy/legal approval | Retention rules are recorded by data category. |
 | BL-029 | Integrate approved location-verification behavior. | REQ-LOC-001 through REQ-LOC-008 | BL-012, BL-028, client approval | Production behavior matches approved evidence rules and monitoring boundaries. |
 | BL-030 | Pilot access-control, privacy, and release validation. | REQ-SEC-001, REQ-PRIV-001, REQ-PRIV-002 | M2-M5 as applicable | RLS, audit logs, notices, retention, and platform requirements are verified. |

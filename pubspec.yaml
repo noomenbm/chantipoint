@@ -36,6 +36,8 @@ dependencies:
   cupertino_icons: ^1.0.8
   supabase_flutter: ^2.18.3
   http: ^1.6.0
+  path_provider: 2.1.6
+  timezone: 0.11.2
 
 dev_dependencies:
   flutter_test:

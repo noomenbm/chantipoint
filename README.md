@@ -2,7 +2,7 @@
 
 ChantiPoint is an Android-first, French-language Flutter attendance application for JMService, using Supabase Auth and PostgreSQL with Row Level Security (RLS).
 
-The current Flutter app provides authentication and an authenticated placeholder screen. Manual attendance UI is the next development slice. Factory attendance must never request location permissions or collect GPS. Future external-worksite location evidence is limited evidence from a device, not certain proof of employee presence or work performed.
+The current Flutter app provides authentication and a manual factory attendance screen for M2.3a. Employees can read their active session, check in at the factory, and manually check out after server acknowledgement. The developer verified factory check-in and checkout against hosted `chantipoint-dev`; the business-timezone refactor has not been retested on Android. Factory attendance must never request location permissions or collect GPS. Future external-worksite location evidence is limited evidence from a device, not certain proof of employee presence or work performed.
 
 ## Current Development State
 
@@ -36,6 +36,14 @@ flutter run `
 Without the required defines, the app displays the French `Configuration requise` screen. Use only the publishable client key in Flutter; never supply service-role keys, database passwords, or user access tokens.
 
 Hosted-development authentication does not require local Docker. Start an Android target only when needed for an app check. Avoid unnecessary Gradle builds, SDK downloads, and cache cleaning on the development computer.
+
+## Business Time
+
+JMService uses `America/Montreal`, configured centrally in [business_time_config.dart](lib/src/config/business_time_config.dart), with the separate French display label `heure de Montréal`. Attendance timestamps remain authoritative UTC instants; [business_time.dart](lib/src/time/business_time.dart) converts them only for display or calendar interpretation using IANA daylight-saving rules. For example: `15/10/2026 à 23:45 (heure de Montréal, UTC−04:00)`.
+
+The installed `timezone` package's `latest_all.dart` database resolves the Montréal backward-compatible alias; the default database omits it. Conversion and formatting accept an explicit IANA identifier for future regions. This is application configuration for one company; database-configurable company timezones and a settings UI are not implemented.
+
+Future monthly attendance reports must derive calendar-month boundaries in the configured business timezone, including DST, then convert those boundaries to UTC for filtering. Calculate elapsed durations from UTC instants, never by subtracting naive local clock times. Reporting is still planned.
 
 ## Validation
 

@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'src/app.dart';
+import 'src/attendance/attendance_controller.dart';
+import 'src/attendance/file_pending_command_store.dart';
+import 'src/attendance/supabase_attendance_repository.dart';
 import 'src/auth/auth_controller.dart';
 import 'src/auth/supabase_auth_repository.dart';
 import 'src/config/supabase_environment_config.dart';
@@ -21,5 +24,17 @@ Future<void> main() async {
   );
 
   final authRepository = SupabaseAuthRepository(Supabase.instance.client);
-  runApp(ChantiPointApp(authController: AuthController(authRepository)));
+  final authController = AuthController(authRepository);
+  final pendingCommands = FilePendingCommandStore();
+  runApp(
+    ChantiPointApp(
+      authController: authController,
+      attendanceControllerFactory: (user) => AttendanceController(
+        SupabaseAttendanceRepository(Supabase.instance.client, user),
+        pendingCommands,
+        user,
+        onAuthorizationFailure: authController.revalidateOnResume,
+      ),
+    ),
+  );
 }
