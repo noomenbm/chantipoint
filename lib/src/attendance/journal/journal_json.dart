@@ -11,6 +11,12 @@ enum JournalIssue {
   commandConflict,
   illegalTransition,
   bindingRequired,
+  invalidatedKey,
+  authenticationFailed,
+  unsupportedContainer,
+  synchronizationFailure,
+  unsupportedPlatform,
+  nativeFailure,
 }
 
 /// Codes only: exceptions must not include employee data or input JSON.

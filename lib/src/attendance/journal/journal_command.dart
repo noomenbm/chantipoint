@@ -56,7 +56,7 @@ class JournalBinding {
       profileId: journalText(json['employee_profile_id']),
     );
   }
-  // An internal routing identity, never a filename or log message. C2b will hash it.
+  // In-memory routing only, never a filename/log. Native uses framed UTF-8/SHA-256.
   String get storageIdentity =>
       jsonEncode([environmentId, baseUrl, authUserId, companyId, profileId]);
   bool matches(JournalBinding other) =>

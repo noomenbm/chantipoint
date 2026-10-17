@@ -49,7 +49,7 @@ class JournalStorageRead {
   final JournalIssue? issue;
 }
 
-/// Future encrypted backend. A successful CAS means the replacement has been
+/// Encrypted backend contract. A successful CAS means the replacement has been
 /// committed, independently read back and verified under a shared lock.
 /// A failure may occur AFTER commit: callers must reread, never assume rollback.
 abstract interface class JournalStorage {

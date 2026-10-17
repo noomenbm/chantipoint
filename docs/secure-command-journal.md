@@ -1,15 +1,17 @@
-# Secure Command Journal — C2a Dart Core
+# Secure Command Journal — C2a Core and C2b Android Storage
 
 C2a implements the platform-independent format-2 codec, immutable command and
 confirmation models, state transitions, asynchronous persistence contract, and
 legacy import preparation. It is isolated from the live application. The
 existing version-1 plaintext store, attendance controller, authentication,
-repository, UI and Android configuration remain unchanged.
+repository and employee UI remain unchanged.
 
-There is **no encryption or production format-2 storage implementation yet**.
-The memory backend lives under `test/support`, stores plaintext bytes in RAM,
-and simulates commit/failure boundaries only. Passing host tests does not verify
-Android durability, cryptography, process-death recovery or backup exclusion.
+C2b implements an opt-in MethodChannel adapter and Android Keystore/AtomicFile
+storage. MainActivity registers the channel, but no live controller instantiates
+the adapter. Registration creates no journal files or encryption keys. Native
+encryption, durability, process-death recovery and backup behavior still require
+actual Android testing. The test memory backend and MethodChannel mocks verify
+host contracts only; their bytes are plaintext RAM simulations.
 
 ## Format 2
 
@@ -190,13 +192,14 @@ deleting an original, handle interrupted migrations and both-copy conflicts,
 retain unknown outcomes, and preserve wrong-account records. File deletion
 cannot guarantee erasure of flash remnants or previously created backups.
 
-## Native C2b requirements and activation boundary
+## Native C2b implementation and activation boundary
 
-C2b must implement Android Keystore AES-GCM and AtomicFile under
+C2b implements Android Keystore AES-GCM and AtomicFile under
 `noBackupFilesDir`, fresh nonces/authenticated context, bounded encrypted
 containers, shared locking, descriptor/directory synchronization and independent
-readback. Missing/invalidated keys and authentication failures must preserve
-ciphertext and block; never reset an unresolved journal to empty.
+readback. Missing/invalidated keys and authentication failures preserve
+ciphertext and block; there is no automatic reset or delete-all API. These are
+implemented safeguards, not a claim of verified Android runtime behavior.
 
 Backup/device-transfer exclusions must cover new storage and legacy originals.
 Keys remain independent of logout/session tokens; unresolved records survive
@@ -215,6 +218,10 @@ C2a does not activate storage, migrate actual files, dispatch v2 RPCs, acquire
 location, modify authentication, or approve hosted deployment/cutover. Native
 encryption, atomicity, process-death and backup tests require separately approved
 Android validation; host simulations are not evidence that those checks passed.
+
+See [Android Journal Storage](android-journal-storage.md) for the implemented C2b
+channel, binary container, encryption/AAD, locks, failure codes and conservative
+interruption policy. The API-36 native compile check does not replace Android tests.
 
 ## C2a Host Validation
 

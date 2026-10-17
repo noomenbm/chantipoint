@@ -1,19 +1,29 @@
 # ChantiPoint Development Status
 
-Current slice: **M2.3c.C2a, isolated Dart command-journal core**. C1 v2 models and
-repository support are committed at `6e38bbc`. C2a adds format-2 serialization,
+Current slice: **M2.3c.C2b, isolated Android encrypted journal backend**. C1 v2
+support is committed at `6e38bbc`; C2a is committed at `c5505cd`. C2a adds format-2 serialization,
 identity binding, revision/key compare-and-swap transitions, confirmation
 retention, blocked recovery, and legacy import preparation. See
 [Secure Command Journal](secure-command-journal.md) for the exact schema and
 recovery contract.
+
+C2b adds the opt-in Dart MethodChannel adapter and native Keystore AES-256-GCM /
+AtomicFile backend. Native CAS, locking, synchronization and readback are
+implemented; encryption/durability/process-death/backup behavior still requires
+Android testing. See [Android Journal Storage](android-journal-storage.md).
+
+C2b host validation: analysis passed; all **538 Flutter tests passed** (469
+existing and 69 new), with zero failures/skips. A cached, 256 MiB Kotlin compile
+check passed the native journal and MainActivity against API 36 without Gradle.
+`git diff --check` passed. No Android runtime/security/durability tests were run.
 
 C2a local validation: `flutter analyze --no-pub` passed; the full
 `flutter test --no-pub --concurrency=1` suite passed **469 tests** (227 existing
 and 242 new), with zero failures or skips. `git diff --check` passed.
 
 The live controller still uses the unchanged legacy version-1 file store.
-Encryption/native persistence (C2b), actual legacy migration (C2c), coordinator
-activation (C3), and hosted v2 deployment/cutover remain pending. Host simulation
+Actual legacy migration (C2c), coordinator activation (C3), Android runtime
+validation, and hosted v2 deployment/cutover remain pending. Host simulation
 does not validate Android disk durability, encryption or process-death recovery.
 
 ## Earlier Implementation and Validation Records
