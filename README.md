@@ -2,7 +2,7 @@
 
 ChantiPoint is an Android-first, French-language Flutter attendance application for JMService, using Supabase Auth and PostgreSQL with Row Level Security (RLS).
 
-The current Flutter app provides authentication and a manual factory attendance screen for M2.3a. Employees can read their active session, check in at the factory, and manually check out after server acknowledgement. The developer verified factory check-in and checkout against hosted `chantipoint-dev`; the business-timezone refactor has not been retested on Android. Factory attendance must never request location permissions or collect GPS. Future external-worksite location evidence is limited evidence from a device, not certain proof of employee presence or work performed.
+The current Flutter app provides authentication and a manual factory attendance screen for M2.3a. Employees can read their active session, check in at the factory, and manually check out after server acknowledgement. The developer verified factory check-in and checkout against hosted `chantipoint-dev`; the business-timezone refactor has not been retested on Android. This legacy Flutter flow still collects no GPS. The approved M2.3b target instead attempts foreground fixes for factory and external attendance, derives classification on the backend, and permits unavailable evidence with review; revised RPCs and Flutter acquisition are not implemented yet. Location evidence is limited evidence from a device, not certain proof of employee presence or work performed.
 
 ## Current Development State
 
@@ -10,6 +10,8 @@ The current Flutter app provides authentication and a manual factory attendance 
 - **M2.2 complete:** Flutter authentication and reliability improvements are implemented; 62 automated Flutter tests and static analysis passed.
 - Android emulator launch, hosted login, profile/role recognition, logout, session persistence, and disabled-profile checks were verified by the developer. See [Development Status](docs/development-status.md) for the recorded checks and remaining work.
 - Public signup is disabled. V1 uses administrator-invited accounts. The account used for current development checks is fictional; administrator provisioning and the employee invitation workflow are not implemented in the app.
+
+M2.3b.1 adds nullable factory configuration, `location_unverified`, employee note storage, and observations for any supported active-session context. The forward-only migration was applied to the existing local database without a reset; both pgTAP suites passed (70 + 71 = 141 tests). It is not deployed to hosted development and changes no attendance RPCs, client write grants, or Flutter behavior. See [Backend Setup](docs/backend-setup.md#m23b1-foundations-and-compatibility) for validation and compatibility details.
 
 Requirements v0.1 remain a draft. Completed development checks do not establish production readiness; privacy, business rules, operational controls, and location feasibility still have open decisions.
 

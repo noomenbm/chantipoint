@@ -2,6 +2,18 @@
 
 This document describes ChantiPoint's target architecture. M2.1 backend foundation is deployed to `chantipoint-dev`, and M2.2 Flutter authentication is complete. See [Development Status](development-status.md) for verification and remaining work; the broader components and workflows below include planned features and do not establish production readiness.
 
+## M2.3b Implementation Boundary
+
+The developer has approved a revised attendance target: foreground fixes at arrival and departure, server-derived `factory` / `external_worksite` / `location_unverified`, no authoritative employee mode choice, and attendance with a review flag when location evidence is missing or insufficient. Departure outcome is independent of arrival. This development approval does not authorize real employee deployment without client/privacy approval.
+
+M2.3b.1 prepares `20261016000100_attendance_location_foundations.sql`: nullable all-or-none factory coordinates/radius on `companies`, the third session context, a nullable 1,000-character `employee_note`, and observation validation for any supported active-session context. Foreign keys, coordinate/accuracy checks, RLS, grants, and existing RPC signatures/responses remain unchanged. No coordinates/radius are seeded. The migration is not applied to hosted development in this stage.
+
+The M2.3a Flutter client is still factory-only and cannot parse `location_unverified`. Legacy RPCs still accept their old context input, reject factory GPS payloads, and reject missing external check-in coordinates. Schema support does not enable the revised workflow: do not expose new-context sessions to this client. M2.3b.2 must coordinate server authority, atomic event/evidence writes, reason/review fields, note editing/auditing, and versioned pending-command recovery before client acquisition is introduced. Historical contexts are not retroactively GPS-verified. Current findCommand recovery also rejects non-null site descriptions, so automatic factory names and expanded payloads need a coordinated recovery change in the next stage.
+
+Reuse `session_events.event_type`, `reason_code`, `notes`, `source`, `work_sessions.review_status`, and linked `location_observations`. Keep `site_description` for workplace identity and `employee_note` for one general employee-authored note. Target note policy is employee editing while active, read-only after checkout, with auditable revisions; this stage adds neither the write RPC nor UI. `geofence_enter`/`geofence_exit` are `location_observations.observation_type` values; their associated session events use the existing `location_observation` umbrella. Ordinary new attendance events need no redundant reason label. Technical reasons include permission_denied, location_services_disabled, approximate_only, accuracy_insufficient, location_timeout, provider_error, and unknown; boundary/staleness/configuration reasons remain to be specified. Do not infer intent from unavailable evidence.
+
+Retain `checkout_source`. Retain `checkout_reason_code` in this migration too, despite its approved removal from the target: actual historical values and closure-event consistency must be audited before a later cleanup migration.
+
 ## Goals
 
 - Support a French-language, single-company attendance and worksite-presence verification workflow.
@@ -30,7 +42,7 @@ This document describes ChantiPoint's target architecture. M2.1 backend foundati
 - Proposed technical designs, including geofencing and automatic checkout, require feasibility results and explicit approval before production use.
 - No real employee monitoring may begin before privacy, security, platform, and client release gates are satisfied.
 - The private feasibility prototype must use emulator or test data only.
-- Factory/company-premises attendance is digital time attendance only; it must not request location permissions, collect GPS coordinates, or register geofences.
+- The revised target allows foreground factory fixes; geofencing/background monitoring remains separate and deferred. Real employee collection requires client/privacy approval; M2.3b.1 changes no client acquisition behavior.
 
 ## Security Boundaries
 
@@ -48,12 +60,12 @@ M2.1 implements attendance mutations through `check_in` and `check_out` Postgres
 
 | Operation | Purpose | Notes |
 | --- | --- | --- |
-| `checkIn` | Start a work session after server validation. | Requires authenticated employee, selected location context, optional description, and idempotency key. Factory sessions do not include a location payload; external-worksite sessions include GPS payload when available. The external-worksite GPS-unavailable policy remains unresolved. |
-| `checkOut` | Manually close an active session. | Records checkout source as manual and stops monitoring if monitoring was active. Factory sessions do not request checkout GPS. |
-| `recordLocationEvent` | Store geofence or location-verification evidence. | Used only during an active external-worksite session and subject to minimization and retention rules. |
+| `checkIn` | Start a work session after server validation. | Target: authenticated employee, evidence/technical conditions, optional external/unverified description, and idempotency key. The server derives classification and fills the factory name; unavailable evidence permits attendance with review. Revised RPC pending. |
+| `checkOut` | Manually close an active session. | Target: foreground evidence independent of arrival, non-blocking location failure with review, manual closure, and stop any later approved monitoring. Revised RPC pending. |
+| `recordLocationEvent` | Store geofence or location-verification evidence. | Foreground attendance evidence belongs to its arrival/departure RPC for any supported context; later geofence/monitoring evidence remains separately approved and active-session scoped. |
 | `recordMonitoringStatus` | Store monitoring enabled, disabled, unavailable, delayed, or stopped status. | Does not automatically prove absence. |
 | `evaluateAutomaticCheckout` | Server-side evaluation of approved automatic checkout rules. | Disabled until feasibility and approval gates pass. |
-| `notifyEightHourSession` | Notify an employee after eight hours of an active session. | Offers `Terminer la session` and `Continuer la session`; no automatic checkout solely from timeout. |
+| `notifyEightHourSession` | Notify an employee after eight hours of an active session. | Offers `Terminer la session` and `Continuer la session`; no automatic checkout solely from an unanswered eight-hour reminder. |
 | `requestCorrection` | Employee submits a correction request. | Does not alter original history directly. |
 | `resolveCorrection` | Administrator approves or rejects a request. | Creates audit history and adjusted session facts if approved. |
 | `listSessions` | Review sessions by employee and date. | Admin scoped; employee scoped for self-view. |
@@ -102,7 +114,7 @@ Correction requests and review statuses are modeled separately so original sessi
 
 ## Automatic Checkout Evidence Rules
 
-Automatic checkout remains proposed. Before production use, rules must be approved and tested. Minimum evidence principles:
+Automatic checkout remains proposed. Before production use, rules must be approved and tested. The following evidence principles govern geofence-exit closure; location failure and maximum-duration handling are separate workflows:
 
 - The session must be active.
 - Monitoring must have been enabled or a monitoring status must explain why evidence is incomplete.
@@ -110,23 +122,29 @@ Automatic checkout remains proposed. Before production use, rules must be approv
 - The candidate grace period is 10 minutes after the application/backend receives reliable exit evidence, not 10 minutes after physical departure.
 - A single low-accuracy GPS point must not close a session.
 - If return evidence arrives during the approved rule window, the session remains active and both departure and return are retained.
-- If location services are disabled or permission is revoked and reliable detection occurs, the approved closure procedure records that reason.
+- Loss of location services, permission, or monitoring availability is not exit evidence and cannot, by itself, close a session. Record the observed technical reason and unavailable/inconclusive status, flag for review, and notify the employee when the future feature exists. No acknowledgment after 30 minutes is recorded while the session stays active; remind again after approximately one hour if the issue persists.
 - If evidence is missing, delayed, contradictory, or unavailable, the session is marked inconclusive or for review rather than silently inferring absence.
 - No checkout timestamp may be fabricated. The chosen timestamp rule must be explicit, auditable, and approved.
-- Automatic closure must notify the employee and require a new manual check-in if work resumes.
+- The provisional exit workflow sends a checkout notification. Continue allows another hour before reevaluation and another notification; no response after 30 minutes allows automatic closure only while approved exit-evidence requirements remain satisfied. Grace expiry and silence alone are insufficient. Preserve evidence and require administrator review; work after closure requires a new manual check-in.
+
+Keep three separate reasons/workflows: technical monitoring failure (no automatic closure from failure or silence), credible geofence exit (receipt-based grace and evidence-gated notification workflow), and excessive duration (proposed configurable 16-hour limit). A session remains active until authorized checkout or a separately approved closure based on sufficient independent evidence. The duration proposal uses authoritative UTC elapsed time, not an assumed departure or failed GPS signal, and does not prove that all elapsed time was worked.
+
+These policies are provisional, requiring client, privacy, and technical approval before production. Timing origins, notification/grace interaction, delivery/acknowledgment handling, duration exceptions, and closure timestamps still need an approved contract. M2.3b.1 adds no notification, timer, geofencing, or automatic-closure implementation.
 
 ## Data Flow
 
 ### Check-In
 
-1. Employee authenticates.
-2. Client requires the employee to choose factory/company premises or external worksite.
-3. For factory/company-premises sessions, the client records attendance data without requesting GPS.
-4. For external-worksite sessions, the client obtains location when available and an optional site description.
-5. If GPS is unavailable for an external-worksite session, the client must follow an approved business rule once defined rather than silently approving or rejecting the check-in.
-6. Client sends `checkIn` with an idempotency key.
-7. Backend validates identity, rejects overlapping active sessions, stores the session and event, and returns confirmation.
-8. Client displays active session state and attempts to configure monitoring only when the session is eligible for location verification.
+Target flow, deferred beyond the M2.3b.1 foundations:
+
+1. Employee authenticates and requests check-in without selecting authoritative classification.
+2. Client attempts a bounded foreground fix and captures observable technical conditions for factory or external attendance.
+3. Backend evaluates usable evidence against trusted company factory configuration; output is factory, external_worksite, or location_unverified. Accuracy, boundary uncertainty, freshness, and policy provenance need an approved contract; no classifier exists yet.
+4. Factory name is filled automatically; external/unverified sessions may have an optional workplace description. General employee notes remain separate.
+5. Backend atomically writes the session, attendance event, and event-linked observation/diagnostics. Insufficient evidence sets review status and a reason without rejecting otherwise authorized attendance.
+6. Client confirms only after server acknowledgement; retries retain the original evidence/payload/key.
+
+Arrival and departure outcomes live with their respective evidence/events. One missing fix does not determine the other. Optional unavailable observations need the correct event association so their phase is unambiguous.
 
 ### On-Duty Verification
 
@@ -141,15 +159,18 @@ Automatic checkout remains proposed. Before production use, rules must be approv
 2. Employee receives a notification with `Terminer la session` and `Continuer la session`.
 3. Checkout follows the normal validated workflow if selected.
 4. Continue preserves the active session and authorized monitoring.
-5. No-response behavior and absolute maximum monitoring duration remain open decisions.
+5. An unanswered eight-hour reminder alone does not close the session. The separate proposed configurable 16-hour maximum adds a stronger warning at 12 hours, a final warning at 15 hours 30 minutes, and automatic closure at 16 hours with mandatory administrator review.
+6. Record the duration-policy reason/evidence separately from monitoring failure and geofence exit. Client, privacy, and technical approval, delivery behavior, and exceptions remain pending; no notifications or duration enforcement are implemented in M2.3b.1.
 
 ### Check-Out
 
-1. Client sends `checkOut` with an idempotency key.
-2. Factory/company-premises checkout does not request GPS.
-3. External-worksite checkout may include checkout location when available and authorized.
-4. Backend closes the active session and records checkout source.
-5. Client unregisters geofences or stops monitoring if monitoring was active.
+Target flow, deferred beyond M2.3b.1:
+
+1. Client requests checkout and attempts a bounded foreground fix regardless of arrival classification.
+2. Backend records an independent departure outcome; missing or insufficient evidence records a technical reason/review flag and does not block an otherwise authorized operation.
+3. Evidence is written before closure under the active-session guard; event/evidence changes and manual closure commit atomically.
+4. Preserve arrival classification, authoritative UTC times, source, existing review issues, and idempotency guarantees.
+5. Client confirms only after acknowledgement and stops any later approved monitoring. No background monitoring is introduced here.
 
 ### Monthly Employee-Hours Reporting
 

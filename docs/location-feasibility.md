@@ -1,6 +1,6 @@
 # ChantiPoint Location Feasibility Study v0.1
 
-Geofencing is the preferred initial candidate for external-worksite location verification, but it is not yet technically validated or contractually approved. This document defines an isolated proof-of-concept plan before any production automatic checkout feature is built. Factory/company-premises attendance does not use GPS or geofencing.
+Geofencing is the preferred initial candidate for external-worksite location verification, but it is not yet technically validated or contractually approved. This document defines an isolated proof-of-concept plan before any production automatic checkout feature is built. The revised M2.3b attendance target permits individual foreground factory fixes, distinct from this later external-worksite geofencing study. M2.3b.1 adds schema foundations only; it implements neither foreground acquisition nor geofencing. The M1 results below remain historical and unchanged.
 
 No real employee monitoring is authorized by this task.
 
@@ -167,7 +167,7 @@ Known constraints:
 | `exit_observed_grace` | Exit event or candidate outside observation is received. | Return evidence, grace expiry, or evidence becomes inconclusive. |
 | `return_observed` | Return event or credible inside observation is received. | Session returns to monitoring enabled. |
 | `auto_checkout_candidate` | Test evidence threshold would be met in the prototype. | Test-only closure simulation or administrator-review simulation. |
-| `monitoring_unavailable` | Location disabled, permission revoked, app unable to register, service unavailable, or evidence too poor. | Monitoring becomes available or session closes. |
+| `monitoring_unavailable` | Location disabled, permission revoked, app unable to register, service unavailable, or evidence too poor; session remains active. | Monitoring recovers, authorized checkout occurs, or a separately approved closure has sufficient independent evidence; failure/silence alone never closes the session. |
 | `monitoring_stopped` | Manual checkout, simulated automatic closure, or cleanup. | No further location collection. |
 
 ## Evidence Principles
@@ -179,6 +179,16 @@ Known constraints:
 - Do not close a session from a single inaccurate GPS point.
 - Do not collect data after checkout.
 - During the spike, automatic checkout must be simulated or clearly marked test-only.
+
+## Provisional Policy Validation After M1
+
+The following planning decisions are separate from the historical M1 spike results. They require client, privacy, and technical approval before production; M2.3b.1 implements none of the monitoring, notifications, timers, geofencing, or automatic checkout.
+
+- **Location failure:** record the technical reason when reliably detected, mark monitoring unavailable/inconclusive, flag administrator review, and notify the employee. Record no acknowledgment after 30 minutes and keep the session active; remind again after approximately one hour if the issue persists. GPS failure or unanswered notifications alone must never cause automatic checkout. Detection/delivery limits remain explicit.
+- **Credible geofence EXIT:** proposed 10-minute grace from reliable receipt of sufficiently credible exit evidence, with a checkout notification. Return evidence keeps the session active. Continue allows another hour before reevaluation and another notification. No response after 30 minutes permits automatic checkout only if approved evidence requirements still hold; preserve evidence and require administrator review. Missing or contradictory evidence cannot be replaced by a location-failure signal.
+- **Excessive duration:** separate proposed configurable 16-hour maximum with reminders/warnings at 8 hours, 12 hours, and 15 hours 30 minutes, then proposed automatic closure at 16 hours with mandatory administrator review. It does not prove all elapsed time was worked.
+
+Future tests must cover these separate reasons/workflows, notification delivery/acknowledgment failures, stale/contradictory exit evidence, continued work, independent duration enforcement, and auditable closure times. The session stays active until authorized checkout or a separately approved closure based on sufficient independent evidence. None of these new policies is claimed tested by M1; 100m was tested and 150m remains pending.
 
 ## Later Real-Device Test Plan
 

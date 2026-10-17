@@ -8,7 +8,7 @@ This backlog is intentionally small and incremental for one developer working ap
 | --- | --- | --- | --- |
 | M0 | Engineering requirements and documentation | REQ-PV-001, REQ-PV-002, REQ-PRIV-001 | Draft docs reviewed; approval classification and open decisions are clear. |
 | M1 | Android geofencing technical feasibility prototype | REQ-LOC-001 through REQ-LOC-008, REQ-DATA-005 | Completed on `spike/android-geofencing` at commit `96e27bb`; emulator findings are documented, but real-device background reliability remains unresolved. |
-| M2 | Supabase authentication and manual attendance vertical slice | REQ-AUTH-001, REQ-EMP-001 through REQ-EMP-005, REQ-EMP-009 through REQ-EMP-011, REQ-DATA-001 through REQ-DATA-008, REQ-SEC-001 | Authenticated Android employee can select factory or external worksite, check in, and manually check out with server acknowledgement and no overlapping active sessions; factory sessions require no GPS. |
+| M2 | Supabase authentication and manual attendance vertical slice | REQ-AUTH-001, REQ-EMP-001 through REQ-EMP-005, REQ-EMP-009 through REQ-EMP-012, REQ-DATA-001 through REQ-DATA-008, REQ-SEC-001 | Target: authenticated employee checks in/out without selecting authoritative mode; backend classifies factory/external_worksite/location_unverified, missing evidence permits attendance with review, and commands remain atomic/idempotent with no overlapping active sessions. M2.3b.1 provides foundations only. |
 | M3 | Administrator account management, session review, and map | REQ-ADM-001 through REQ-ADM-004, REQ-ADM-007 | Designated administrator can manage employee accounts and review sessions, statuses, anomalies, location context, and check-in/out map points where coordinates exist. |
 | M4 | Corrections, notifications, and operational reports | REQ-EMP-006, REQ-EMP-007, REQ-ADM-005, REQ-ADM-006, REQ-ADM-008 through REQ-ADM-010 | Corrections, eight-hour notification, monthly employee-hours report, and approved CSV export fields work without detailed location trails. |
 | M5 | Approved location-verification integration | REQ-LOC-001 through REQ-LOC-008, REQ-PRIV-001 through REQ-PRIV-004 | Starts only if feasibility, privacy, platform, and client approval gates pass. |
@@ -18,15 +18,17 @@ This backlog is intentionally small and incremental for one developer working ap
 
 M2.1 is deployed to `chantipoint-dev` with 70 local pgTAP tests passed. M2.2 authentication is complete with 62 Flutter tests, static analysis, and developer-verified Android/hosted login checks. Public signup is disabled; the current development account is fictional. Administrator provisioning and invitation management remain future M3 work.
 
-M2.3a implements factory check-in/check-out and a server-confirmed active-session display (the factory subset of BL-017 through BL-020); the developer verified both commands against hosted development. Factory attendance must never request GPS. Client retries must reuse the original idempotency key and payload. Continue with the remaining external-worksite flow once its missing-GPS business rule is resolved.
+M2.3a implements the legacy factory check-in/check-out flow and server-confirmed display; developer-hosted checks succeeded. Its Flutter/RPC behavior remains unchanged and collects no GPS. M2.3b.1 prepares nullable factory configuration, location_unverified schema support, employee_note storage, and active-session observations for all contexts. Final-review local application succeeded without a reset; both pgTAP suites passed (70 + 71 = 141, zero failures). Hosted deployment remains pending separate approval, and local database/Docker resources are stopped with the existing volume retained.
+
+Next, M2.3b.2 must revise RPC authority, atomic event/evidence/reason/review writes, independent arrival/departure outcomes, note updates/auditing, and idempotent recovery. Revised Flutter acquisition/classification UI is not implemented. The current client rejects location_unverified; coordinate the cutover rather than expose new-context records prematurely. Reuse original pending payloads/keys, and audit historical checkout_reason_code values and closure events before a later removal.
 
 Business-time handling is centralized in application configuration and reusable IANA conversion/formatting, with `America/Montreal` for JMService and a separate French display label. Other IANA regions can use the same logic; database-configurable company timezones and timezone settings UI are not implemented. Future reports must use this configured timezone policy.
 
 Broader M2 acceptance criteria:
 
-- Authenticated employee can select `À l'usine` or `Chantier extérieur` at check-in.
-- Factory/company-premises sessions record timestamps only and do not request location permissions or GPS.
-- External-worksite sessions can capture check-in GPS coordinates when available, while production geofencing remains deferred; GPS-unavailable behavior remains unresolved pending a business rule.
+- Target employees do not select authoritative mode; backend classification uses evidence and trusted factory configuration, with factory, external_worksite, or location_unverified outcomes.
+- Future foreground fixes may be captured at both factory and external arrival/departure; classification and acquisition are not part of M2.3b.1.
+- Missing/insufficient location must permit otherwise authorized attendance with technical event reasons and review flags once revised RPCs exist; arrival/departure outcomes are independent. Future geofencing/monitoring is separate and deferred.
 - Server acknowledgement is required before the employee sees an active session.
 - Overlapping active sessions and duplicate commands are rejected or deduplicated server-side.
 
@@ -44,7 +46,7 @@ Production geofencing and automatic checkout remain deferred. M1 emulator findin
 | BL-006 | Test geofence registration at both 100m and 150m. | REQ-LOC-001, REQ-LOC-003 | BL-005 | Record registration success/failure for both radii. 100m: tested in M1; 150m: still pending validation. |
 | BL-007 | Test simulated exit and return callbacks. | REQ-LOC-003, REQ-DATA-005 | BL-006 | Callback/receipt timestamp is captured; original event timestamp is recorded only if supplied and otherwise marked unavailable. |
 | BL-008 | Test delayed event and 10-minute grace simulation. | REQ-LOC-003, REQ-LOC-004 | BL-007 | Simulated grace-period behavior is measurable and documented. |
-| BL-009 | Test disabled or unavailable monitoring states. | REQ-LOC-006, REQ-LOC-008 | BL-006 | Permission/location-disabled/unavailable states do not become false absence assertions. |
+| BL-009 | Test disabled or unavailable monitoring states. | REQ-LOC-006, REQ-LOC-008 | BL-006 | Permission/location-disabled/unavailable states do not become false absence assertions or automatic checkout triggers. Future tests must cover reason/review/notification, no acknowledgment at 30 minutes with the session active, and a reminder after approximately one hour. |
 | BL-010 | Test simulated automatic checkout candidate. | REQ-LOC-004, REQ-LOC-005 | BL-008, BL-009 | Candidate closure records source, reason, and evidence summary; no production closure is implemented. |
 | BL-011 | Test geofence cleanup/unregistration. | REQ-LOC-007 | BL-006 | Prototype demonstrates cleanup after simulated checkout. |
 | BL-012 | Produce feasibility report and recommendation. | REQ-LOC-001 through REQ-LOC-008 | BL-005 through BL-011 | Recommendation covers geofence, periodic GPS, hybrid, or manual-review-only path and identifies real-device field tests. |
@@ -52,17 +54,18 @@ Production geofencing and automatic checkout remain deferred. M1 emulator findin
 | BL-014 | Define initial schema migrations. | REQ-DATA-001 through REQ-DATA-008 | [data-model.md](data-model.md), BL-013 | Schema supports profiles, roles, sessions, location context, events, monitoring status, corrections, retention, report calculations, and audit without circular mandatory event references. |
 | BL-015 | Implement RLS and server-side command boundaries. | REQ-DATA-002, REQ-SEC-001 | BL-014 | Employees cannot access other employees' records; admin access is scoped. |
 | BL-016 | Add Flutter authentication flow. | REQ-AUTH-001 | BL-013, BL-015 | User can sign in and sign out on Android. |
-| BL-017 | Add manual check-in command and UI. | REQ-EMP-001, REQ-EMP-002, REQ-EMP-005, REQ-EMP-009 through REQ-EMP-011 | BL-015, BL-016 | Server acknowledgement is required before active session state is shown; employee selects factory or external worksite; factory check-in does not request GPS. |
-| BL-018 | Add manual checkout command and UI. | REQ-EMP-003, REQ-LOC-007 | BL-017 | Checkout closes the session and records source as manual; factory checkout does not request GPS. |
+| BL-017 | Add manual check-in command and UI. | REQ-EMP-001, REQ-EMP-002, REQ-EMP-005, REQ-EMP-009 through REQ-EMP-011 | BL-015, BL-016 | Target: server acknowledgement, server-derived three-way classification, automatic factory name, optional external/unverified description, and non-blocking unavailable evidence with technical reason/review. Legacy factory flow remains until revised RPC/client work. |
+| BL-018 | Add manual checkout command and UI. | REQ-EMP-003, REQ-LOC-007 | BL-017 | Target: manual atomic closure with independent foreground departure evidence; unavailable GPS does not block checkout, and reason/review state remains auditable. Revised RPC/client work pending. |
 | BL-019 | Add basic employee active-session and monitoring-status display. | REQ-EMP-008 | BL-017 | Employee sees active, pending, disabled, unavailable, not-applicable, or closed state clearly. |
 | BL-020 | Add session overlap and idempotency protections. | REQ-EMP-004, REQ-DATA-001, REQ-DATA-003 | BL-014, BL-017 | Duplicate commands and overlapping active sessions are rejected or deduplicated server-side while allowing multiple non-overlapping sessions per day. |
+| BL-032 | Add employee general session-note editing and audit. | REQ-EMP-012 | BL-017, BL-018 | One optional note, at most 1,000 characters; employee edits only while active, read-only after checkout, revisions auditable through controlled server operations. M2.3b.1 adds the column only. |
 | BL-031 | Build administrator employee-account management. | REQ-ADM-001, REQ-ADM-007 | BL-015 | Designated administrator can create, disable, and update employee profiles; the role model remains extensible for additional administrators later. |
 | BL-021 | Build admin session list and filters. | REQ-ADM-002 | BL-015 | Manager filters by employee/date/location context and sees lifecycle/review status. |
-| BL-022 | Add map display for check-in/check-out points. | REQ-ADM-003 | BL-021 | Manager can inspect recorded external-worksite coordinates without implying certainty; factory sessions show no map point. |
+| BL-022 | Add map display for check-in/check-out points. | REQ-ADM-003 | BL-021 | Target: manager can inspect genuine recorded arrival/departure evidence for factory or external attendance without implying certainty; unavailable location never fabricates a map point. Revised collection remains pending. |
 | BL-023 | Add anomaly and automatic-checkout review view. | REQ-ADM-004, REQ-LOC-004 | BL-021 | Manager can review source, reason, and evidence summary. |
 | BL-024 | Add correction request submission. | REQ-EMP-006 | BL-018 | Employee can submit a request without altering original records. |
 | BL-025 | Add correction review and audit. | REQ-ADM-005 | BL-024 | Administrator approval/rejection creates audit history and review status. |
-| BL-026 | Add eight-hour active-session notification. | REQ-EMP-007 | BL-019, notification channel decision | Employee can choose checkout or continue; no-response behavior remains controlled by approved policy. |
+| BL-026 | Add active-session notifications and approved duration safeguards. | REQ-EMP-007, REQ-LOC-004, REQ-LOC-008 | BL-019, notification channel decision, client/privacy/technical approval | Separate failure, exit, and duration workflows follow the provisional requirements. Location failure/silence never closes a session; exit uses proposed 10-minute grace, checkout notification, another hour after continue, and a 30-minute no-response evidence gate. Proposed configurable 16-hour maximum: warnings at 8h, 12h, 15h30; automatic closure at 16h requires administrator review and does not prove time worked. Planning only in M2.3b.1. |
 | BL-027 | Add monthly employee-hours report and CSV export. | REQ-ADM-006, REQ-ADM-008 through REQ-ADM-010, REQ-DATA-008 | BL-021, BL-025 | Administrator selects month/year; calendar-month boundaries use the configured business timezone (currently America/Montreal) and IANA DST rules before conversion to UTC. Totals use elapsed UTC intervals, handle cross-month sessions, flag incomplete/disputed/corrected sessions, and export CSV without detailed location trails. |
 | BL-028 | Define and implement approved retention controls. | REQ-PRIV-003, REQ-PRIV-004 | Privacy/legal approval | Retention rules are recorded by data category. |
 | BL-029 | Integrate approved location-verification behavior. | REQ-LOC-001 through REQ-LOC-008 | BL-012, BL-028, client approval | Production behavior matches approved evidence rules and monitoring boundaries. |
@@ -81,6 +84,7 @@ Production geofencing and automatic checkout remain deferred. M1 emulator findin
 | REQ-EMP-006 | BL-024, BL-025 |
 | REQ-EMP-007 | BL-026 |
 | REQ-EMP-008 | BL-019 |
+| REQ-EMP-012 | BL-032 |
 | REQ-ADM-001, REQ-ADM-007 | BL-031 |
 | REQ-ADM-002 | BL-021 |
 | REQ-ADM-003 | BL-022 |

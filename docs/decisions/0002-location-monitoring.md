@@ -8,7 +8,7 @@ Status: Proposed; emulator feasibility completed, pending real-device validation
 
 The core business concern is that an employee may check in at an external worksite, leave for an extended period, and later check out, making the session appear uninterrupted.
 
-The product should provide location-based evidence about whether the employee's phone remained near the declared external worksite during an active work session. It must not claim certainty about physical presence or work activity. Factory/company-premises attendance does not use GPS or geofencing.
+The product should provide location-based evidence about whether the employee's phone remained near the declared external worksite during an active work session. It must not claim certainty about physical presence or work activity. The original factory-no-GPS assumption is superseded by the approved M2.3b target for individual foreground attendance fixes. That target does not implement or approve factory geofencing/background monitoring; M2.3b.1 adds schema foundations only. The historical M1 findings and the separate geofencing approval gates remain unchanged.
 
 Android and iOS may delay, suppress, or restrict background location and geofence events. Personal devices also vary by operating-system version, settings, battery optimization, permissions, hardware accuracy, connectivity, and whether location services remain enabled.
 
@@ -38,7 +38,13 @@ Automatic checkout remains disabled in production until:
 
 ## Proposed Business Rule Under Test
 
-If a reliable exit event is received, the candidate grace period is 10 minutes from application/backend receipt of that event. If the employee returns during the grace period, the session continues and exit/return events are retained. If the departure persists beyond the grace period and sufficient reliable evidence exists, proposed behavior is automatic checkout followed by employee notification.
+The M1 spike tested a simulated grace-period checkout candidate; the following final-review policies are provisional planning decisions, not additional M1 results. They require client, privacy, and technical approval before production and are not implemented in M2.3b.1.
+
+- **Geofence exit:** a proposed 10-minute grace period starts from reliable application/backend receipt of sufficiently credible EXIT evidence. Return evidence keeps the session active and preserves exit/return history. Send a checkout notification; if the employee continues, allow another hour before reevaluation and another notification. No response after 30 minutes permits automatic checkout only if approved evidence requirements are still satisfied. Preserve evidence and flag automatic closure for administrator review. Grace expiry or silence alone is insufficient.
+- **Location failure:** loss of permission, services, or monitoring availability is not an EXIT event. Record the technical reason when reliably detected, unavailable/inconclusive status, and administrator review flag; notify the employee when the future feature supports it. After 30 minutes without acknowledgment, record that fact and keep the session active; remind again after approximately one hour if the problem persists. Failure or unanswered notifications alone must never cause automatic checkout.
+- **Excessive duration:** a separate proposed configurable 16-hour maximum has a reminder at 8 hours, stronger warning at 12 hours, final warning at 15 hours 30 minutes, and proposed automatic closure at 16 hours with mandatory administrator review. Closure does not prove that all elapsed time was worked.
+
+Keep the session active until authorized checkout or a separately approved closure based on sufficient independent evidence. Exact notification/grace timing, evidence thresholds, duration exceptions, delivery/acknowledgment handling, and closure timestamps need an approved contract. No notifications, timers, geofencing, or automatic checkout are introduced in M2.3b.1.
 
 This rule does not guarantee checkout 10 minutes after physical departure because background events can be delayed or missed.
 
@@ -46,7 +52,7 @@ This rule does not guarantee checkout 10 minutes after physical departure becaus
 
 - Early development should prioritize the Android feasibility prototype before major administrator-application investment.
 - Location monitoring code must record unavailable or inconclusive states.
-- Reliable detection of disabled location or revoked permission may trigger an approved closure procedure, but immediate detection must not be promised.
+- Reliable detection of disabled location, revoked permission, or monitoring failure records the technical reason and unavailable/inconclusive state for review and notification; it never, by itself, triggers checkout. Immediate detection or notification delivery must not be promised.
 - A single inaccurate GPS point must not trigger automatic checkout.
 - Grace periods cannot eliminate operating-system delivery delays.
 - The system must stop collecting location data after checkout.

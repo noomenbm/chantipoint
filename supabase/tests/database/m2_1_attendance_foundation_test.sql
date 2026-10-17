@@ -173,7 +173,9 @@ select throws_ok(
   'database-level unique index rejects a concurrent second active session'
 );
 
-select throws_ok(
+-- M2.3b.1 intentionally permits trusted observation writes for every context.
+-- The legacy factory RPC still creates no observations (asserted above).
+select lives_ok(
   $$insert into public.location_observations (
       work_session_id,
       employee_profile_id,
@@ -194,9 +196,7 @@ select throws_ok(
            'gps'
       from public.work_sessions
      where check_in_idempotency_key = 'employee-a-factory-in-003'$$,
-  '23514',
-  'location_observation_requires_external_worksite',
-  'factory sessions cannot receive location observations'
+  'trusted factory observation insert is permitted by the M2.3b.1 foundation'
 );
 
 set local role authenticated;

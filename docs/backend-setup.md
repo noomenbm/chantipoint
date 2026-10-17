@@ -1,6 +1,6 @@
 # ChantiPoint Backend Setup v0.1
 
-This guide covers the deployed M2.1 Supabase foundation and the M2.2 Flutter authentication setup. The initial migration has been deployed to the hosted development project `chantipoint-dev`. See [Development Status](development-status.md) for completed checks, remaining implementation work, and release limitations.
+This guide covers the deployed M2.1 baseline, M2.2/M2.3a client, and the locally validated M2.3b.1 database foundations. The initial migration has been deployed to the hosted development project `chantipoint-dev`. See [Development Status](development-status.md) for completed checks, remaining implementation work, and release limitations.
 
 ## Current State
 
@@ -25,7 +25,11 @@ The initial migration is already deployed to `chantipoint-dev`:
 
 1. `supabase/migrations/20261013000100_initial_attendance_foundation.sql`
 
-Keep this versioned migration as the baseline. Future schema changes require new migrations, local validation, and explicit approval before hosted deployment.
+Next migration applied and validated locally during final review; not deployed to hosted development:
+
+2. `supabase/migrations/20261016000100_attendance_location_foundations.sql`
+
+Keep the initial committed migration unchanged as the baseline. Future schema changes require new migrations, local validation, and explicit approval before hosted deployment.
 
 This first migration creates only the minimal M2 foundation:
 
@@ -38,6 +42,36 @@ This first migration creates only the minimal M2 foundation:
 - `admin_audit_events`
 
 Future tables for correction requests, anomaly review, reporting snapshots, retention automation, notifications, and production geofencing are intentionally deferred.
+
+## M2.3b.1 Foundations and Compatibility
+
+The new migration adds nullable `companies.factory_latitude numeric(9,6)`, `factory_longitude numeric(9,6)`, and `factory_radius_meters integer`. They must be all NULL or all present, with valid coordinate ranges and a positive radius. No actual coordinates, default coordinates, or production radius are seeded. Existing SELECT/RLS scope is retained; neither employees nor administrator clients gain direct configuration writes.
+
+`work_sessions.location_context` additionally accepts `location_unverified`. `employee_note text` is nullable and limited to 1,000 characters; it is separate from site descriptions and event notes. Employee editing while active, read-only behavior after checkout, and audited revisions are target RPC/UI policy, not functionality implemented by this column alone. No client write grant or note RPC is added.
+
+The private observation validator no longer requires external_worksite. It still checks matching session/company/employee identity and active lifecycle on INSERT/UPDATE. Existing coordinate pairs, ranges, nonnegative accuracy, evidence foreign keys, RLS, and grants remain unchanged. Checkout evidence must be inserted before the transaction closes the session. The factory monitoring constraint stays: foreground fixes do not imply background monitoring.
+
+Legacy `check_in`/`check_out` signatures, request hashes, writes, and six-field acknowledgements remain unchanged. They still reject factory GPS payloads and missing external check-in coordinates; `check_in` still rejects a client-supplied `location_unverified`. The current Flutter client also rejects that context. Do not introduce client-visible new-context sessions until M2.3b.2 coordinates revised RPCs and client parsing/recovery. The migration does not create a new client-authoritative classification path.
+
+The approved target is server classification from foreground evidence, non-blocking location failures with `review_status` and technical `session_events.reason_code`, independent arrival/departure outcomes, and employee note updates. None of those revised workflows is implemented in M2.3b.1. Existing records are not relabeled as GPS-verified.
+
+`checkout_source` and `checkout_reason_code` are retained. Removal of the latter requires a later migration after actual historical reasons and closure-event consistency have been audited.
+
+Final-review local validation used the existing `supabase_db_chantipoint` volume and cached PostgreSQL 17.11 image, with only the database service started and initialization bypassed. Before application, migration history contained only `20261013000100`; all seven application tables and `auth.users` were empty. `supabase migration up --local` successfully applied only `20261016000100`. No reset, data/volume replacement, image pull, or hosted operation occurred.
+
+`supabase/tests/database/m2_3b_1_location_foundations_test.sql` adds rollback-only coverage for configuration completeness/ranges, all contexts, note limits, observation identity/event/coordinate/accuracy/active-session guards, unchanged RPC acknowledgements, and client role/tenant boundaries. Its synthetic coordinates and radius are constraint fixtures only.
+
+One assertion in `m2_1_attendance_foundation_test.sql` changes from rejecting a trusted factory observation to accepting it, because the external-only guard is intentionally removed. The independent legacy factory RPC/no-GPS assertions, idempotency tests, and existing authorization/audit coverage are retained. Final review did not alter either SQL test suite or the migration.
+
+Actual final-review results from `supabase test db`, with separate per-file runs confirming the counts:
+
+| Suite | Passed | Failed |
+| --- | --- | --- |
+| M2.1 attendance foundation | 70 | 0 |
+| M2.3b.1 location foundations | 71 | 0 |
+| Combined | 141 | 0 |
+
+Post-validation inspection confirmed both migration versions are recorded, all eight checked tables remain empty after rollback-only tests, and the temporarily enabled pgTAP extension was removed by the CLI. PostgreSQL stopped cleanly; Docker Desktop is stopped. The database container and existing volume are retained with both migrations applied. Hosted `chantipoint-dev` remains on its previously deployed migration. Flutter/Android integration was not retested.
 
 ## Security Model
 
@@ -87,17 +121,17 @@ Administrative role revocation and profile disabling append rows to `admin_audit
 - Does not allow one employee, or an administrator acting through this employee RPC, to close another employee's session.
 - Allows an authorized employee to safely check out an already-active session even if the employer has since become suspended.
 
-Factory sessions reject GPS/location payloads and cannot receive `location_observations`. External-worksite sessions can store check-in and checkout coordinates when provided.
+Legacy attendance RPCs reject factory GPS/location payloads and create no factory observations. After the M2.3b.1 migration, trusted database operations may insert factory observations under the same identity, active-session, coordinate, and evidence constraints. External-worksite sessions can store check-in and checkout coordinates when provided.
 
 Flutter retry behavior must reuse both the original idempotency key and the original request payload for a command. Retrying with the same key but changed command details is treated as a conflict, not as a replay.
 
 ## External-Worksite GPS-Unavailable Boundary
 
-The business policy for external-worksite check-in when GPS is unavailable is unresolved. This migration does not silently approve or silently treat missing GPS as verified attendance.
+The approved target allows otherwise authorized attendance when GPS is unavailable or insufficient, with a technical event reason and review flag. Missing evidence never means verified factory attendance. The revised RPCs that enforce this target are deferred to M2.3b.2.
 
 Temporary M2.1 behavior: `check_in('external_worksite', ...)` requires coordinates. If no coordinates are supplied, the RPC raises `external_worksite_location_required_pending_policy`. This is an implementation boundary for review, not a final business decision.
 
-Factory attendance remains independent of GPS permissions and availability.
+The functioning M2.3a factory flow remains independent of GPS in this foundation stage; future foreground acquisition applies at both factory and external check-in/checkout, subject to client/privacy approval before real employee deployment.
 
 ## Local Prerequisites
 
@@ -134,15 +168,14 @@ Planned V1 account flow:
 
 ## Local Validation Commands
 
-For deliberate local database validation only, with Supabase CLI and Docker available:
+For repeat local validation, first inspect the existing database and migration state. Once the database-only service is deliberately running, apply only pending local migrations without resetting data, then run both pgTAP files:
 
 ```powershell
-supabase start --exclude gotrue,realtime,storage-api,imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
-supabase db reset
+supabase migration up --local
 supabase test db
 ```
 
-The long `--exclude` list starts only the local database container needed for migrations and pgTAP tests. The reset command is for the disposable local database. These tests passed for M2.1; running them is separate from Flutter authentication checks. Stop the local stack when database validation is finished.
+These commands passed during M2.3b.1 final review (141 pgTAP tests, zero failures); the migration is already applied locally. Do not reset the database without explicit approval. If it is stopped, use only already available local resources for a deliberate database-only start; do not pull images or start the full stack for this validation. Keep C: above the 5 GB threshold. Stop local services when finished, preserving the database volume.
 
 Do not run `supabase link`, `supabase db push`, or any hosted mutation without explicit human approval for that operation.
 
@@ -178,7 +211,7 @@ For production:
 
 ## RLS Verification Checklist
 
-Run the prepared database tests after a local reset:
+With the reviewed migrations applied to the verified local database without a reset, run the database tests:
 
 ```powershell
 supabase test db
@@ -205,14 +238,19 @@ The tests cover:
 - Last-active-administrator revocation and disablement protection.
 - Anonymous users cannot read attendance records.
 - Administrator company scoping.
-- Factory sessions cannot create location observations.
+- Trusted factory observations are accepted after M2.3b.1, while legacy factory RPCs still acquire/create no GPS evidence.
+- Factory configuration is nullable/all-or-none, range-checked, and protected from client writes.
+- All three schema contexts and nullable/1,000-character employee notes are covered.
+- Observation identity, event linkage, coordinate, accuracy, active-session, and role/tenant protections remain covered.
 - External-worksite check-in and checkout can record location observations.
 - Unauthorized checkout attempts.
 
 ## Open Decisions
 
-- Final policy when GPS is unavailable during external-worksite check-in.
-- Whether external-worksite checkout location is mandatory, optional, or unavailable-tolerant.
+- Evidence-quality, boundary, freshness, and missing-factory-configuration rules for the approved non-blocking target; revised RPCs still need implementation.
+- Independent arrival/departure outcome and reason contracts; missing/insufficient location must not block otherwise authorized checkout once revised RPCs are implemented.
+- Coordinated client/RPC cutover and existing version-1 pending-command recovery.
+- Active-session note update/audit design and historical checkout_reason_code cleanup audit.
 - Formal administrator provisioning workflow and audit requirements.
 - Administrator closure/review workflow when a profile is disabled while the employee has an active work session.
 - Correction-request, anomaly, retention, notification, and reporting schemas.

@@ -1,14 +1,14 @@
 # ChantiPoint Logical Data Model v0.1
 
-This document defines the initial logical model only. It is not a SQL migration, Supabase schema, or final database design.
+This document describes the target logical model, including future entities that are not deployed. The M2.3b.1 migration adds only factory configuration, a third location context, employee note storage, and context-independent active-session evidence validation. It has been applied and tested locally; hosted deployment remains pending separate approval. Revised attendance/notes RPCs and Flutter acquisition remain pending. See [Backend Setup](backend-setup.md#m23b1-foundations-and-compatibility) for the exact current boundary.
 
 ## Design Principles
 
 - Keep employees, roles, sessions, events, observations, monitoring status, review status, corrections, retention, and audit history separate.
 - Store timestamps in UTC and display the configured business time, currently America/Montreal for JMService. The application centralizes IANA conversion and separate display labels; database-configurable company timezones are not implemented.
 - Preserve device-observed timestamps, callback/receipt timestamps, and server-accepted timestamps separately.
-- Record GPS accuracy where available for external-worksite location evidence.
-- Support factory/company-premises sessions without GPS coordinates or location observations.
+- Target foreground evidence may be captured for factory and external attendance; preserve reported accuracy and observable limitations. Server classification is factory, external_worksite, or location_unverified, not an employee choice.
+- Target attendance remains possible without sufficient GPS, with review status and event reason; check-in and checkout outcomes are independent. This replaces the old factory-no-GPS target without changing the legacy RPC/client in M2.3b.1.
 - Avoid unnecessary location history and exclude detailed location trails from routine CSV exports.
 - Preserve enough history to review departures, returns, automatic closures, corrections, and administrative changes.
 - Calculate attendance reports from validated sessions and approved corrections rather than manually maintained duplicate totals.
@@ -45,7 +45,9 @@ Represents the initial employer account and keeps future multi-company isolation
 | Field | Notes |
 | --- | --- |
 | `id` | Stable company identifier. |
-| `name` | Employer name. |
+| `name` | Employer name; target factory name can be filled automatically from trusted configuration. |
+| `factory_latitude`, `factory_longitude` | Nullable numeric(9,6) foundation columns with latitude/longitude ranges. |
+| `factory_radius_meters` | Nullable positive integer, all-or-none with both coordinates; no production values are seeded. |
 | `status` | Active, suspended, archived. |
 | `created_at`, `updated_at` | Server timestamps in UTC. |
 
@@ -91,18 +93,19 @@ Represents one declared work period at one workplace.
 | `lifecycle_status` | Active, closed_manual, closed_automatic, closed_admin, voided. |
 | `review_status` | Normal, anomaly_open, correction_pending, reviewed, corrected, disputed. |
 | `current_monitoring_status` | Not applicable, pending, enabled, disabled_detected, permission_revoked_detected, unavailable, inconclusive, stopped. |
-| `location_context` | Factory/company premises, external worksite, or unspecified for legacy/admin-repair cases. |
-| `site_description` | Optional employee-entered workplace/project description. |
+| `location_context` | Schema accepts factory, external_worksite, and location_unverified after M2.3b.1; server-derived classification is a later RPC change. Historical context does not establish GPS verification. |
+| `site_description` | Target: automatic factory name or optional employee-entered external/unverified workplace description; not a general note. |
+| `employee_note` | Nullable text, maximum 1,000 characters. Target: employee-editable while active, read-only after checkout, with auditable edits. Column only in M2.3b.1; write/audit RPC and UI pending. |
 | `started_at` | Server-accepted session start time in UTC. |
 | `ended_at` | Server-accepted session end time in UTC, nullable while active. |
 | `checkout_source` | Manual, automatic, administrator correction, or null while active. |
-| `checkout_reason_code` | Optional reason such as manual, geofence_exit_persisted, permission_revoked_detected, location_disabled_detected, admin_correction. |
+| `checkout_reason_code` | Legacy nullable field retained for compatibility. Approved for later removal only after historical reasons and closure events are reconciled; target structured reasons belong to session_events.reason_code. |
 | `automatic_checkout_evidence_summary` | Nullable short summary for administrator review. |
 | `created_at`, `updated_at` | Server timestamps in UTC. |
 
 Integrity rule: one employee must not have more than one active session at a time.
 
-Factory/company-premises sessions must be valid without GPS coordinates and should use monitoring status semantics equivalent to not applicable. External-worksite sessions may have check-in/check-out observations and later geofence evidence when approved.
+The target permits foreground evidence for every context without equating it with background monitoring. An unverified arrival or departure must not prevent otherwise authorized attendance, and each outcome has its own event/evidence and technical reason. M2.3b.1 provides schema support only; future RPCs must set review flags and preserve atomicity/idempotency.
 
 ### `session_events`
 
@@ -112,15 +115,17 @@ Auditable event stream for each work session.
 | --- | --- |
 | `id` | Stable event identifier. |
 | `work_session_id` | Session reference. |
-| `event_type` | Check-in, manual checkout, automatic checkout, admin closure, geofence exit, geofence enter, monitoring status, eight-hour notification, correction, report export, or similar. |
+| `event_type` | Existing values: `check_in`, `manual_checkout`, `automatic_checkout`, `admin_closure`, `monitoring_status`, `location_observation`, `correction`, `notification`. Geofence subtypes are not session event types. |
 | `source` | Employee app, admin app, system, backend, or platform callback. |
 | `device_observed_at` | Device timestamp when applicable. |
 | `callback_received_at` | App/backend callback or receipt timestamp when applicable. |
 | `server_accepted_at` | Server timestamp when the state change is accepted. |
 | `actor_profile_id` | User who caused the event, nullable for system or platform events. |
-| `reason_code` | Machine-readable reason. |
-| `notes` | Short reason or context where appropriate. |
+| `reason_code` | Additional machine-readable technical reason, not the employee general note. Target ordinary check-in/checkout needs no repeated label; historical values are preserved. |
+| `notes` | Short event-specific context, separate from the current general employee note. |
 | `idempotency_key` | Optional duplicate-protection key for command events. |
+
+`geofence_enter` and `geofence_exit` belong to `location_observations.observation_type`. Associated session events retain the existing `location_observation` umbrella value; M2.3b.1 adds no event types. Future technical monitoring failures, evidence-backed geofence exits, and maximum-duration closures must retain distinct reasons/evidence rather than infer closure from unavailable monitoring. See the [provisional workflows](requirements.md#location-permissions-disabled-or-unavailable); no timers, notifications, or automatic checkout are implemented here.
 
 ### `location_observations`
 
@@ -141,7 +146,7 @@ Minimized location evidence associated with a session event or monitoring state.
 | `server_received_at` | Server receipt timestamp in UTC. |
 | `raw_metadata` | Limited diagnostic metadata, only if needed and approved. |
 
-Location observations are not route tracking and should be collected only during active external-worksite sessions or approved verification workflows. Factory/company-premises sessions should not create location observations. If GPS is unavailable at external-worksite check-in, the record can represent that unavailability only after the business rule is approved; missing GPS must not be silently interpreted as verified attendance or automatic refusal.
+Location observations are evidence, not route tracking or proof of presence. M2.3b.1 permits trusted writes for factory, external_worksite, and location_unverified active sessions while retaining identity, event-link, and coordinate/accuracy constraints. Target foreground outcomes must link to the correct arrival/departure event; unavailable evidence uses observable technical reasons and review flags, never invented coordinates or verified-factory defaults. The revised writers are not implemented yet. Future geofence callbacks/monitoring remain separate; existing event/observation names are preserved.
 
 ### `monitoring_status_events`
 
@@ -263,7 +268,7 @@ Logical representation of retention rules once approved.
 - Preserve original records when corrections are approved.
 - Do not store Supabase service-role credentials in mobile or web clients.
 - Stop creating location observations after a session is closed.
-- Do not create location observations for factory/company-premises sessions.
+- Permit foreground factory evidence in the approved target; this foundation changes the observation guard, not the legacy attendance RPCs or client acquisition.
 - Treat unavailable location as a recorded status, not as absence.
 - Exclude detailed location trails from routine CSV exports.
 - Calculate monthly attendance totals from validated session intervals and approved corrections.
