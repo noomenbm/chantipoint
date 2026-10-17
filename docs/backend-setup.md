@@ -1,6 +1,6 @@
 # ChantiPoint Backend Setup v0.1
 
-This guide covers the deployed M2.1 baseline, M2.2/M2.3a client, and the locally validated M2.3b.1 database foundations. The initial migration has been deployed to the hosted development project `chantipoint-dev`. See [Development Status](development-status.md) for completed checks, remaining implementation work, and release limitations.
+This guide covers the deployed M2.1 baseline, M2.2/M2.3a client, and the locally validated M2.3b.1 foundations/M2.3b.2a gated attendance contract. The initial migration has been deployed to the hosted development project `chantipoint-dev`. See [Development Status](development-status.md) for completed checks, remaining implementation work, and release limitations.
 
 ## Current State
 
@@ -25,9 +25,10 @@ The initial migration is already deployed to `chantipoint-dev`:
 
 1. `supabase/migrations/20261013000100_initial_attendance_foundation.sql`
 
-Next migration applied and validated locally during final review; not deployed to hosted development:
+Additional migrations applied and validated locally; not deployed to hosted development:
 
 2. `supabase/migrations/20261016000100_attendance_location_foundations.sql`
+3. `supabase/migrations/20261017000100_attendance_v2_contract.sql` (applied/tested locally; legacy gate remains 1).
 
 Keep the initial committed migration unchanged as the baseline. Future schema changes require new migrations, local validation, and explicit approval before hosted deployment.
 
@@ -47,7 +48,7 @@ Future tables for correction requests, anomaly review, reporting snapshots, rete
 
 The new migration adds nullable `companies.factory_latitude numeric(9,6)`, `factory_longitude numeric(9,6)`, and `factory_radius_meters integer`. They must be all NULL or all present, with valid coordinate ranges and a positive radius. No actual coordinates, default coordinates, or production radius are seeded. Existing SELECT/RLS scope is retained; neither employees nor administrator clients gain direct configuration writes.
 
-`work_sessions.location_context` additionally accepts `location_unverified`. `employee_note text` is nullable and limited to 1,000 characters; it is separate from site descriptions and event notes. Employee editing while active, read-only behavior after checkout, and audited revisions are target RPC/UI policy, not functionality implemented by this column alone. No client write grant or note RPC is added.
+`work_sessions.location_context` additionally accepts `location_unverified`. `employee_note text` is nullable and limited to 1,000 characters; it is separate from site descriptions and event notes. The latest target is owner-authorized overwrite-only saves while active, a final edit atomic with manual checkout, and read-only after closure, without note versions/history/correction events. Note writes/UI are deferred to M2.3b.2b. No client write grant or note RPC is added.
 
 The private observation validator no longer requires external_worksite. It still checks matching session/company/employee identity and active lifecycle on INSERT/UPDATE. Existing coordinate pairs, ranges, nonnegative accuracy, evidence foreign keys, RLS, and grants remain unchanged. Checkout evidence must be inserted before the transaction closes the session. The factory monitoring constraint stays: foreground fixes do not imply background monitoring.
 
@@ -73,6 +74,22 @@ Actual final-review results from `supabase test db`, with separate per-file runs
 
 Post-validation inspection confirmed both migration versions are recorded, all eight checked tables remain empty after rollback-only tests, and the temporarily enabled pgTAP extension was removed by the CLI. PostgreSQL stopped cleanly; Docker Desktop is stopped. The database container and existing volume are retained with both migrations applied. Hosted `chantipoint-dev` remains on its previously deployed migration. Flutter/Android integration was not retested.
 
+## M2.3b.2a Gated Attendance Contract
+
+See [Attendance Backend Contract](attendance-backend-contract.md) for exact check_in_v2/check_out_v2 signatures, development thresholds, event/evidence storage, replay guarantees, cutover safeguards, and remaining client work. The new migration adds only bounded session_events.metadata and attendance/helper/compatibility functions. Both committed migrations, the original 141 tests, table-write restrictions, RLS and employee-note storage are unchanged.
+
+Local validation passed all 568 pgTAP assertions: M2.1 70, M2.3b.1 71, M2.3b.2a 427. Four true concurrency scenarios passed 26 assertions. Final gate is 1, all eight checked tables are empty, and database/Docker resources are stopped with the existing volume retained. An initial concurrency-harness cleanup syntax error was corrected and its scoped fixtures removed before successful full reruns; no migration or pgTAP assertion failed. Hosted development is unchanged.
+
+Do not enable v2 before upgrading Flutter and reconciling/draining legacy journals. The private gate is not client-settable; approved activation must acquire the exclusive transaction advisory lock (174811, 2). Legacy new check-in is blocked after cutover, accepted legacy keys replay, and legacy checkout remains available with unverified evidence. No factory configuration is seeded.
+
+Repeat the separate integration test only against the deliberately started local database:
+
+```powershell
+python -B supabase/tests/integration/m2_3b_2a_concurrency_test.py
+```
+
+It temporarily enables v2 locally, commits fresh fictional fixtures without factory configuration for independent connections, restores the exact original gate and deletes only its own fixture IDs. It verifies all eight table counts afterward. Stop local resources after validation. No hosted deployment or cutover is authorized by these commands.
+
 ## Security Model
 
 Supabase Auth remains the source of login identity. `user_profiles.auth_user_id` links each application user to `auth.users.id`.
@@ -84,7 +101,7 @@ Application roles are held in `role_assignments`:
 - `employee`
 - `administrator`
 
-Direct client writes to application tables are not granted. Authenticated users receive read access only where RLS permits it. Attendance mutations go through the RPC functions `public.check_in(...)` and `public.check_out(...)`.
+Direct client writes to application tables are not granted. Authenticated users receive read access only where RLS permits it. Attendance mutations use the guarded legacy RPCs `public.check_in(...)` / `public.check_out(...)`, or the new v2 RPCs after an approved contract cutover.
 
 Active employees can read their own attendance records. Revoking the employee role removes that employee-role access even if the profile remains active. Active administrators can read company-scoped historical records. Revoking the administrator role removes company-wide access; if the same person also has an active employee role, they keep only their own employee access. Disabled profiles lose protected attendance access. Anonymous users receive no table access.
 
@@ -127,7 +144,7 @@ Flutter retry behavior must reuse both the original idempotency key and the orig
 
 ## External-Worksite GPS-Unavailable Boundary
 
-The approved target allows otherwise authorized attendance when GPS is unavailable or insufficient, with a technical event reason and review flag. Missing evidence never means verified factory attendance. The revised RPCs that enforce this target are deferred to M2.3b.2.
+The approved target allows otherwise authorized attendance when GPS is unavailable or insufficient, with a technical event reason and review flag. Missing evidence never means verified factory attendance. The M2.3b.2a RPCs enforce this target behind the legacy-mode gate; Flutter acquisition and coordinated cutover remain pending.
 
 Temporary M2.1 behavior: `check_in('external_worksite', ...)` requires coordinates. If no coordinates are supplied, the RPC raises `external_worksite_location_required_pending_policy`. This is an implementation boundary for review, not a final business decision.
 
@@ -168,14 +185,14 @@ Planned V1 account flow:
 
 ## Local Validation Commands
 
-For repeat local validation, first inspect the existing database and migration state. Once the database-only service is deliberately running, apply only pending local migrations without resetting data, then run both pgTAP files:
+For repeat local validation, first inspect the existing database and migration state. Once the database-only service is deliberately running, apply only pending local migrations without resetting data, then run all three pgTAP files:
 
 ```powershell
 supabase migration up --local
 supabase test db
 ```
 
-These commands passed during M2.3b.1 final review (141 pgTAP tests, zero failures); the migration is already applied locally. Do not reset the database without explicit approval. If it is stopped, use only already available local resources for a deliberate database-only start; do not pull images or start the full stack for this validation. Keep C: above the 5 GB threshold. Stop local services when finished, preserving the database volume.
+These commands passed during M2.3b.2a validation (568 pgTAP assertions, zero failures); all three migrations are already applied locally. Do not reset the database without explicit approval. If it is stopped, use only already available local resources for a deliberate database-only start; do not pull images or start the full stack for this validation. Keep C: above the 5 GB threshold. Stop local services when finished, preserving the database volume.
 
 Do not run `supabase link`, `supabase db push`, or any hosted mutation without explicit human approval for that operation.
 
@@ -247,10 +264,10 @@ The tests cover:
 
 ## Open Decisions
 
-- Evidence-quality, boundary, freshness, and missing-factory-configuration rules for the approved non-blocking target; revised RPCs still need implementation.
-- Independent arrival/departure outcome and reason contracts; missing/insufficient location must not block otherwise authorized checkout once revised RPCs are implemented.
+- Production approval of evidence-quality, boundary and freshness thresholds; conservative development rules are implemented in the gated M2.3b.2a backend.
+- Coordinated client support for the implemented independent arrival/departure outcome and reason contracts; the gated backend permits otherwise authorized checkout with insufficient location.
 - Coordinated client/RPC cutover and existing version-1 pending-command recovery.
-- Active-session note update/audit design and historical checkout_reason_code cleanup audit.
+- M2.3b.2b owner-authorized overwrite-only notes, including atomic final checkout edit without note history/versions; historical checkout_reason_code cleanup audit remains separate.
 - Formal administrator provisioning workflow and audit requirements.
 - Administrator closure/review workflow when a profile is disabled while the employee has an active work session.
 - Correction-request, anomaly, retention, notification, and reporting schemas.

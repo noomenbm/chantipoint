@@ -1,6 +1,6 @@
 # ChantiPoint Development Status
 
-M2.3b.1 database-foundation work on `feature/manual-attendance`, starting from committed M2.3a `2bcbe87`. The developer reports that factory check-in and checkout succeeded against hosted `chantipoint-dev`. The business-timezone refactor has not been retested on Android; the earlier manual authentication checks below remain developer-reported.
+M2.3b.2a backend-contract implementation on `feature/manual-attendance`, starting from committed M2.3b.1 `82f127d`. The developer reports that factory check-in and checkout succeeded against hosted `chantipoint-dev`. The business-timezone refactor has not been retested on Android; the earlier manual authentication checks below remain developer-reported.
 
 ## Completed Slices
 
@@ -10,15 +10,23 @@ M2.3b.1 database-foundation work on `feature/manual-attendance`, starting from c
 | M2.2 - Flutter authentication | French password login, active-profile/role authorization, session restoration, resume revalidation, auth-event handling, safe retry states, stale-response protection, and reliable logout are implemented. Android's main manifest includes INTERNET permission. | 62 Flutter automated tests passed; `flutter analyze` passed; developer-reported Android and hosted checks below succeeded. |
 | M2.3a - Manual factory attendance | French employee-only active-session, check-in and manual checkout workflow using existing RPCs and RLS reads; configured America/Montreal business time; durable pending-command recovery. | 118 Flutter tests passed, including all 62 authentication tests, RPC response-shape compatibility, and business-timezone coverage; static analysis passed. The developer verified hosted factory check-in and checkout before this timezone refactor. |
 
-M2 as a whole still needs the revised evidence/classification RPCs and client workflow. No production geofencing or automatic checkout is implemented.
+M2 as a whole still needs employee-note writes and the revised client workflow; the evidence/classification backend is now implemented locally behind its legacy gate. No production geofencing or automatic checkout is implemented.
 
 ## M2.3b.1 Locally Validated Database Foundations
 
 New forward-only migration: `20261016000100_attendance_location_foundations.sql`. It adds nullable all-or-none factory coordinates/radius with range/positive-radius constraints, adds location_unverified to the session context check, adds nullable employee_note text with a 1,000-character limit, and removes the external-only observation guard while preserving active-session/identity checks and all existing coordinate/evidence relationships. No configuration values are seeded. The initial migration, RLS/grants, event types, public RPC signatures/responses, and Flutter files remain unchanged. checkout_reason_code is retained pending a historical data/closure-event audit before later removal.
 
-The approved target is foreground arrival/departure evidence, automatic server classification (factory/external_worksite/location_unverified), non-blocking unavailable GPS with technical event reasons and review, independent outcomes, and a general employee note editable while active/read-only after checkout with eventual edit auditing. Revised RPCs, classification, event/review writes, note updates, and Flutter acquisition are not implemented in this stage. The current Flutter client rejects location_unverified; do not expose new-context records before a coordinated upgrade. Legacy contexts are not retroactively verified location evidence.
+The approved target is foreground arrival/departure evidence, automatic server classification (factory/external_worksite/location_unverified), non-blocking unavailable GPS with technical event reasons and review, independent outcomes, and a general employee note editable while active/read-only after checkout with overwrite-only saves, a final edit atomic with manual checkout, and no note edit history. This latest note decision supersedes earlier revision/audit proposals. Those revised workflows were not implemented by M2.3b.1. Gated attendance backend operations are now implemented in M2.3b.2a below; note writes and Flutter acquisition remain pending. The current Flutter client rejects location_unverified; do not expose new-context records before a coordinated upgrade. Legacy contexts are not retroactively verified location evidence.
 
 Final review applied the migration successfully to the existing local database using `supabase migration up --local`, after confirming only the initial migration was recorded. `supabase test db` passed both suites: M2.1 70/70 and M2.3b.1 71/71, 141 total with zero failures; separate suite runs confirmed each count. The cached PostgreSQL 17.11 and pg_prove images and existing volume were used without reset, data/volume replacement, or downloads. All seven application tables and auth.users were empty before and after validation; test fixtures rolled back. Both migrations remain recorded locally, the database stopped cleanly, and Docker Desktop is stopped. Hosted development was not changed. No SQL, Flutter, or Android changes were made during final review; Flutter/Android integration was not retested. See [Backend Setup](backend-setup.md#m23b1-foundations-and-compatibility) for compatibility and test details.
+
+## M2.3b.2a Implemented and Locally Validated
+
+New forward-only migration: `20261017000100_attendance_v2_contract.sql`. Adds bounded event metadata, development-policy classification, semantic request hashing, v2 check-in/checkout, and guarded legacy wrappers. The original implementation bodies remain private with client execution revoked. Arrival/departure outcomes are independent, location failures permit authorized attendance with review, and replay returns original outcomes without reacquiring evidence. No note editing, note versions/history, Flutter, monitoring or automatic-closure changes.
+
+`supabase migration up --local` succeeded. Final `supabase test db`: 568 assertions passed, zero failures (70 + 71 unchanged, plus 427 new). Four real concurrent same/different-key check-in/checkout scenarios passed 26 assertions. The initial harness cleanup failed with SQLSTATE 42601 due to a missing semicolon after pg_get_functiondef output; it was fixed, only its verified fictional fixtures were removed, and complete reruns passed. No migration or pgTAP assertion failed.
+
+Three migrations are recorded locally. The final gate is legacy mode 1; all eight checked tables remain empty, temporary pgTAP is removed, and PostgreSQL/Docker are stopped with the existing volume preserved. No image pulls, resets, hosted operations or Android/Flutter retesting occurred. [Attendance Backend Contract](attendance-backend-contract.md) records signatures, provenance, limitations and validation. Hosted deployment still requires separate approval and M2.3b.1-before-M2.3b.2a ordering.
 
 ## Manual Authentication Verification
 
@@ -59,14 +67,14 @@ M2.3a validation (historical): `flutter analyze --no-pub`, `flutter test --no-pu
 
 ## Next Implementation Slice
 
-Complete human approval of the locally validated M2.3b.1 foundations, obtain separate authorization before any hosted deployment, then approve M2.3b.2 RPC contracts, evidence quality/boundary/freshness rules, independent outcomes, technical reasons/review updates, active-only note updates/auditing, and pending-command compatibility. The legacy external check-in still raises external_worksite_location_required_pending_policy without coordinates; its replacement must implement the approved non-blocking target. Factory coordinates/radius remain unconfigured until trusted approval. Android business-time display and real process-kill recovery remain separate unverified checks.
+Review and approve M2.3b.2a code and validation, then design/implement M2.3b.2b overwrite-only employee notes without history, including a final edit atomic with manual checkout. Coordinate the revised Flutter/journal contract before any v2 cutover and obtain separate authorization before hosted deployment. The legacy external check-in still raises external_worksite_location_required_pending_policy without coordinates; the gated v2 implementation supports the approved non-blocking target and awaits client cutover. Factory coordinates/radius remain unconfigured until trusted approval. Android business-time display and real process-kill recovery remain separate unverified checks.
 
 After the full manual attendance slice, M3 covers administrator account management, session review, and maps where approved coordinates exist. See [Backlog](backlog.md).
 
 ## Outstanding Work and Decisions
 
 - Administrator bootstrap, invitations, account management, and their audit requirements; review/closure of active sessions when an employee is disabled.
-- Implement the approved non-blocking location target: quality/boundary/freshness/configuration rules, independent evidence/reason/review contracts, note-edit auditing, and coordinated legacy journal/client migration.
+- Integrate the gated v2 backend into Flutter with immutable evidence/diagnostic payloads, protected versioned journals, all contexts and recovery support. Note editing remains M2.3b.2b work: overwrite-only, no history, final edit atomic with checkout. Production thresholds and collection approval remain pending.
 - Audit historical checkout_reason_code values and closure-event consistency before removal.
 - Corrections, notifications, monthly attendance reports, and CSV exports; break rules and monthly approval requirements remain open. Separate provisional location-failure, geofence-exit, and configurable 16-hour duration policies are documented in Requirements; client, privacy, and technical approval and implementation remain pending. GPS failure/silence alone never triggers checkout. No notification, timer, geofence, or automatic checkout is implemented in M2.3b.1.
 - Real-device location feasibility, approved geofence/evidence rules, automatic-checkout policy, and Android/iOS delivery decisions.

@@ -23,7 +23,7 @@ Ces points sont traités comme des exigences rapportées pour la planification, 
 15. Les paramètres proposés sont un rayon de 100 à 150 m et un délai de grâce de 10 minutes après la réception fiable d'un événement de sortie.
 16. Après 8 heures de session active, l'employé doit recevoir une notification avec `Terminer la session` et `Continuer la session`.
 17. Ces points ne constituent pas une approbation écrite formelle du client. Le développeur a approuvé la cible révisée M2.3b pour le développement; M2.3b.1 prépare seulement le schéma, sans nouveaux RPC ni acquisition Flutter. L'approbation client/vie privée reste nécessaire avant tout déploiement auprès de vrais employés.
-18. Une note générale facultative par session (1 000 caractères maximum) sera modifiable par l'employé pendant la session, en lecture seule après la sortie, avec historique des modifications prévu. Seule la colonne est préparée à ce stade.
+18. Une note générale de travail facultative par session (1 000 caractères maximum) sera modifiable par son propriétaire pendant la session. Chaque sauvegarde remplacera la valeur précédente, sans historique, version ni événement de correction. Une dernière modification pourra être enregistrée atomiquement au pointage de sortie; la note finale deviendra ensuite en lecture seule. Cette fonction reste reportée à M2.3b.2b.
 
 ## Politiques provisoires à faire approuver
 

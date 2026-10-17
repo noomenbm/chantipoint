@@ -1,6 +1,6 @@
 # ChantiPoint Logical Data Model v0.1
 
-This document describes the target logical model, including future entities that are not deployed. The M2.3b.1 migration adds only factory configuration, a third location context, employee note storage, and context-independent active-session evidence validation. It has been applied and tested locally; hosted deployment remains pending separate approval. Revised attendance/notes RPCs and Flutter acquisition remain pending. See [Backend Setup](backend-setup.md#m23b1-foundations-and-compatibility) for the exact current boundary.
+This document describes the target logical model, including future entities that are not deployed. The M2.3b.1 migration adds only factory configuration, a third location context, employee note storage, and context-independent active-session evidence validation. It has been applied and tested locally; hosted deployment remains pending separate approval. M2.3b.2a adds the gated v2 attendance RPCs and bounded event metadata; note writes and coordinated Flutter acquisition remain pending. See [Attendance Backend Contract](attendance-backend-contract.md). See [Backend Setup](backend-setup.md#m23b1-foundations-and-compatibility) for the exact current boundary.
 
 ## Design Principles
 
@@ -93,9 +93,9 @@ Represents one declared work period at one workplace.
 | `lifecycle_status` | Active, closed_manual, closed_automatic, closed_admin, voided. |
 | `review_status` | Normal, anomaly_open, correction_pending, reviewed, corrected, disputed. |
 | `current_monitoring_status` | Not applicable, pending, enabled, disabled_detected, permission_revoked_detected, unavailable, inconclusive, stopped. |
-| `location_context` | Schema accepts factory, external_worksite, and location_unverified after M2.3b.1; server-derived classification is a later RPC change. Historical context does not establish GPS verification. |
+| `location_context` | Schema accepts factory, external_worksite, and location_unverified after M2.3b.1; server-derived classification is implemented by the gated M2.3b.2a RPCs. Historical context does not establish GPS verification. |
 | `site_description` | Target: automatic factory name or optional employee-entered external/unverified workplace description; not a general note. |
-| `employee_note` | Nullable text, maximum 1,000 characters. Target: employee-editable while active, read-only after checkout, with auditable edits. Column only in M2.3b.1; write/audit RPC and UI pending. |
+| `employee_note` | Nullable general business/work-session text, maximum 1,000 characters. Future owner-authorized active-session saves overwrite without edit history; a final edit is atomic with manual checkout, then read-only. No note versions, correction/revision events or history table. Note writes/UI deferred to M2.3b.2b. |
 | `started_at` | Server-accepted session start time in UTC. |
 | `ended_at` | Server-accepted session end time in UTC, nullable while active. |
 | `checkout_source` | Manual, automatic, administrator correction, or null while active. |
@@ -105,7 +105,7 @@ Represents one declared work period at one workplace.
 
 Integrity rule: one employee must not have more than one active session at a time.
 
-The target permits foreground evidence for every context without equating it with background monitoring. An unverified arrival or departure must not prevent otherwise authorized attendance, and each outcome has its own event/evidence and technical reason. M2.3b.1 provides schema support only; future RPCs must set review flags and preserve atomicity/idempotency.
+The target permits foreground evidence for every context without equating it with background monitoring. An unverified arrival or departure must not prevent otherwise authorized attendance, and each outcome has its own event/evidence and technical reason. M2.3b.1 provides schema support; the gated M2.3b.2a RPCs now set review flags and preserve atomicity/idempotency.
 
 ### `session_events`
 
@@ -122,7 +122,8 @@ Auditable event stream for each work session.
 | `server_accepted_at` | Server timestamp when the state change is accepted. |
 | `actor_profile_id` | User who caused the event, nullable for system or platform events. |
 | `reason_code` | Additional machine-readable technical reason, not the employee general note. Target ordinary check-in/checkout needs no repeated label; historical values are preserved. |
-| `notes` | Short event-specific context, separate from the current general employee note. |
+| `notes` | Short event-specific context, separate from the current general employee note; v2 attendance does not put technical JSON or note revisions here. |
+| `metadata` | M2.3b.2a nullable JSON object, maximum 16 KiB. Server-generated operation/version, location classification, policy version and bounded issue list. No arbitrary client JSON or note revisions. |
 | `idempotency_key` | Optional duplicate-protection key for command events. |
 
 `geofence_enter` and `geofence_exit` belong to `location_observations.observation_type`. Associated session events retain the existing `location_observation` umbrella value; M2.3b.1 adds no event types. Future technical monitoring failures, evidence-backed geofence exits, and maximum-duration closures must retain distinct reasons/evidence rather than infer closure from unavailable monitoring. See the [provisional workflows](requirements.md#location-permissions-disabled-or-unavailable); no timers, notifications, or automatic checkout are implemented here.
@@ -146,7 +147,7 @@ Minimized location evidence associated with a session event or monitoring state.
 | `server_received_at` | Server receipt timestamp in UTC. |
 | `raw_metadata` | Limited diagnostic metadata, only if needed and approved. |
 
-Location observations are evidence, not route tracking or proof of presence. M2.3b.1 permits trusted writes for factory, external_worksite, and location_unverified active sessions while retaining identity, event-link, and coordinate/accuracy constraints. Target foreground outcomes must link to the correct arrival/departure event; unavailable evidence uses observable technical reasons and review flags, never invented coordinates or verified-factory defaults. The revised writers are not implemented yet. Future geofence callbacks/monitoring remain separate; existing event/observation names are preserved.
+Location observations are evidence, not route tracking or proof of presence. M2.3b.1 permits trusted writes for factory, external_worksite, and location_unverified active sessions while retaining identity, event-link, and coordinate/accuracy constraints. Target foreground outcomes must link to the correct arrival/departure event; unavailable evidence uses observable technical reasons and review flags, never invented coordinates or verified-factory defaults. The M2.3b.2a v2 writers implement these conventions behind the legacy-mode gate; client acquisition/cutover are pending. Future geofence callbacks/monitoring remain separate; existing event/observation names are preserved.
 
 ### `monitoring_status_events`
 

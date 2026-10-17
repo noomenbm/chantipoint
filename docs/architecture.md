@@ -8,9 +8,9 @@ The developer has approved a revised attendance target: foreground fixes at arri
 
 M2.3b.1 prepares `20261016000100_attendance_location_foundations.sql`: nullable all-or-none factory coordinates/radius on `companies`, the third session context, a nullable 1,000-character `employee_note`, and observation validation for any supported active-session context. Foreign keys, coordinate/accuracy checks, RLS, grants, and existing RPC signatures/responses remain unchanged. No coordinates/radius are seeded. The migration is not applied to hosted development in this stage.
 
-The M2.3a Flutter client is still factory-only and cannot parse `location_unverified`. Legacy RPCs still accept their old context input, reject factory GPS payloads, and reject missing external check-in coordinates. Schema support does not enable the revised workflow: do not expose new-context sessions to this client. M2.3b.2 must coordinate server authority, atomic event/evidence writes, reason/review fields, note editing/auditing, and versioned pending-command recovery before client acquisition is introduced. Historical contexts are not retroactively GPS-verified. Current findCommand recovery also rejects non-null site descriptions, so automatic factory names and expanded payloads need a coordinated recovery change in the next stage.
+The M2.3a Flutter client is still factory-only and cannot parse `location_unverified`. In the initial legacy mode, RPCs retain their old context input and factory/external GPS restrictions. After approved v2 activation, legacy new check-in is blocked and its checkout adapter records unverified departure evidence. Schema support does not enable the revised workflow: do not expose new-context sessions to this client. M2.3b.2a implements server authority and atomic event/evidence/reason/review writes behind a legacy-mode gate; [Attendance Backend Contract](attendance-backend-contract.md) documents signatures and local validation. M2.3b.2b note updates and the coordinated Flutter/journal cutover remain pending. Historical contexts are not retroactively GPS-verified. Current findCommand recovery also rejects non-null site descriptions, so automatic factory names and expanded payloads need a coordinated recovery change in the next stage.
 
-Reuse `session_events.event_type`, `reason_code`, `notes`, `source`, `work_sessions.review_status`, and linked `location_observations`. Keep `site_description` for workplace identity and `employee_note` for one general employee-authored note. Target note policy is employee editing while active, read-only after checkout, with auditable revisions; this stage adds neither the write RPC nor UI. `geofence_enter`/`geofence_exit` are `location_observations.observation_type` values; their associated session events use the existing `location_observation` umbrella. Ordinary new attendance events need no redundant reason label. Technical reasons include permission_denied, location_services_disabled, approximate_only, accuracy_insufficient, location_timeout, provider_error, and unknown; boundary/staleness/configuration reasons remain to be specified. Do not infer intent from unavailable evidence.
+Reuse `session_events.event_type`, `reason_code`, `notes`, `source`, `work_sessions.review_status`, and linked `location_observations`. Keep `site_description` for workplace identity and `employee_note` for one general employee-authored note. Target note policy is owner-authorized overwrite-only saves while active, including a final edit atomic with manual checkout, then read-only. It is general business text with no edit history, note versions, correction events or revision metadata. Note writes and UI remain outside M2.3b.2a. `geofence_enter`/`geofence_exit` are `location_observations.observation_type` values; their associated session events use the existing `location_observation` umbrella. Ordinary new attendance events need no redundant reason label. Technical reasons include permission_denied, location_services_disabled, approximate_only, accuracy_insufficient, location_timeout, provider_error, and unknown; the v2 contract also defines boundary_uncertain, location_stale and factory_configuration_missing. Development thresholds remain subject to production approval. Do not infer intent from unavailable evidence.
 
 Retain `checkout_source`. Retain `checkout_reason_code` in this migration too, despite its approved removal from the target: actual historical values and closure-event consistency must be audited before a later cleanup migration.
 
@@ -60,8 +60,8 @@ M2.1 implements attendance mutations through `check_in` and `check_out` Postgres
 
 | Operation | Purpose | Notes |
 | --- | --- | --- |
-| `checkIn` | Start a work session after server validation. | Target: authenticated employee, evidence/technical conditions, optional external/unverified description, and idempotency key. The server derives classification and fills the factory name; unavailable evidence permits attendance with review. Revised RPC pending. |
-| `checkOut` | Manually close an active session. | Target: foreground evidence independent of arrival, non-blocking location failure with review, manual closure, and stop any later approved monitoring. Revised RPC pending. |
+| `checkIn` | Start a work session after server validation. | Target: authenticated employee, evidence/technical conditions, optional external/unverified description, and idempotency key. The server derives classification and fills the factory name; unavailable evidence permits attendance with review. V2 backend implemented behind the legacy gate; client cutover pending. |
+| `checkOut` | Manually close an active session. | Target: foreground evidence independent of arrival, non-blocking location failure with review, manual closure, and stop any later approved monitoring. V2 backend implemented behind the legacy gate; client cutover pending. |
 | `recordLocationEvent` | Store geofence or location-verification evidence. | Foreground attendance evidence belongs to its arrival/departure RPC for any supported context; later geofence/monitoring evidence remains separately approved and active-session scoped. |
 | `recordMonitoringStatus` | Store monitoring enabled, disabled, unavailable, delayed, or stopped status. | Does not automatically prove absence. |
 | `evaluateAutomaticCheckout` | Server-side evaluation of approved automatic checkout rules. | Disabled until feasibility and approval gates pass. |
@@ -135,11 +135,11 @@ These policies are provisional, requiring client, privacy, and technical approva
 
 ### Check-In
 
-Target flow, deferred beyond the M2.3b.1 foundations:
+Target client flow, supported by the gated M2.3b.2a backend; Flutter acquisition/cutover remain pending:
 
 1. Employee authenticates and requests check-in without selecting authoritative classification.
 2. Client attempts a bounded foreground fix and captures observable technical conditions for factory or external attendance.
-3. Backend evaluates usable evidence against trusted company factory configuration; output is factory, external_worksite, or location_unverified. Accuracy, boundary uncertainty, freshness, and policy provenance need an approved contract; no classifier exists yet.
+3. Backend evaluates usable evidence against trusted company factory configuration; output is factory, external_worksite, or location_unverified. M2.3b.2a implements conservative development accuracy, boundary, freshness and policy-provenance rules behind the legacy gate. Production thresholds and coordinated client acquisition remain pending approval.
 4. Factory name is filled automatically; external/unverified sessions may have an optional workplace description. General employee notes remain separate.
 5. Backend atomically writes the session, attendance event, and event-linked observation/diagnostics. Insufficient evidence sets review status and a reason without rejecting otherwise authorized attendance.
 6. Client confirms only after server acknowledgement; retries retain the original evidence/payload/key.
@@ -164,7 +164,7 @@ Arrival and departure outcomes live with their respective evidence/events. One m
 
 ### Check-Out
 
-Target flow, deferred beyond M2.3b.1:
+Target client flow, supported by the gated M2.3b.2a backend; Flutter acquisition and final-note save remain pending:
 
 1. Client requests checkout and attempts a bounded foreground fix regardless of arrival classification.
 2. Backend records an independent departure outcome; missing or insufficient evidence records a technical reason/review flag and does not block an otherwise authorized operation.
