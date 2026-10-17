@@ -11,6 +11,10 @@ enum AttendanceFailureKind {
   sessionNotActive,
   storage,
   externalSession,
+  contractUnavailable,
+  invalidRequest,
+  employeeNoteTooLong,
+  companyInactive,
 }
 
 class AttendanceFailure implements Exception {
@@ -33,6 +37,11 @@ class AttendanceFailure implements Exception {
       'Cette session a déjà été fermée ou ne peut plus être modifiée.',
     AttendanceFailureKind.storage => 'Impossible de sécuriser le pointage sur cet appareil. Réessayez avant de continuer.',
     AttendanceFailureKind.externalSession => 'Une session sur chantier extérieur est active. Ce parcours prend uniquement en charge l’usine.',
+    AttendanceFailureKind.contractUnavailable => 'Cette fonction de pointage n’est pas encore disponible. Contactez votre administrateur.',
+    AttendanceFailureKind.invalidRequest => 'Les informations de cette opération sont invalides. Vérifiez-les avant de réessayer.',
+    AttendanceFailureKind.employeeNoteTooLong =>
+      'La note ne doit pas dépasser 1 000 caractères.',
+    AttendanceFailureKind.companyInactive => 'Votre entreprise ne permet pas de nouvelle entrée. Contactez votre administrateur.',
   };
 }
 
@@ -43,12 +52,32 @@ class WorkSession {
     required this.lifecycleStatus,
     required this.startedAt,
     this.endedAt,
+    this.siteDescription,
+    this.employeeNote,
+    this.reviewStatus,
   });
+  static const locationContexts = {
+    'factory',
+    'external_worksite',
+    'location_unverified',
+  };
+  static const reviewStatuses = {
+    'normal',
+    'anomaly_open',
+    'correction_pending',
+    'reviewed',
+    'corrected',
+    'disputed',
+  };
   final String id;
   final String locationContext;
   final String lifecycleStatus;
   final DateTime startedAt;
   final DateTime? endedAt;
+  final String? siteDescription;
+  final String? employeeNote;
+  // Legacy acknowledgements omit this value; absence does not mean normal.
+  final String? reviewStatus;
   bool get isActive => lifecycleStatus == 'active';
   bool get isFactory => locationContext == 'factory';
 
@@ -64,11 +93,18 @@ class WorkSession {
     final id = row['id'] ?? row['session_id'];
     final context = row['location_context'];
     final lifecycle = row['lifecycle_status'];
+    final description = row['site_description'];
+    final note = row['employee_note'];
+    final review = row['review_status'];
     final start = timestamp(row['started_at']);
     final end = row['ended_at'] == null ? null : timestamp(row['ended_at']);
     if (id is! String ||
         id.isEmpty ||
-        !const ['factory', 'external_worksite'].contains(context) ||
+        !locationContexts.contains(context) ||
+        (description != null &&
+            (description is! String || description.runes.length > 500)) ||
+        (note != null && (note is! String || note.runes.length > 1000)) ||
+        (review != null && !reviewStatuses.contains(review)) ||
         !const [
           'active',
           'closed_manual',
@@ -86,6 +122,9 @@ class WorkSession {
       lifecycleStatus: lifecycle as String,
       startedAt: start,
       endedAt: end,
+      siteDescription: description as String?,
+      employeeNote: note as String?,
+      reviewStatus: review as String?,
     );
   }
 }
