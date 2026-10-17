@@ -1,6 +1,6 @@
 # ChantiPoint Backend Setup v0.1
 
-This guide covers the deployed M2.1 baseline, M2.2/M2.3a client, and the locally validated M2.3b.1 foundations/M2.3b.2a gated attendance contract. The initial migration has been deployed to the hosted development project `chantipoint-dev`. See [Development Status](development-status.md) for completed checks, remaining implementation work, and release limitations.
+This guide covers the deployed M2.1 baseline, M2.2/M2.3a client, and the locally validated M2.3b.1 foundations, M2.3b.2a gated attendance contract and M2.3b.2b employee notes. The initial migration has been deployed to the hosted development project `chantipoint-dev`. See [Development Status](development-status.md) for completed checks, remaining implementation work, and release limitations.
 
 ## Current State
 
@@ -28,7 +28,8 @@ The initial migration is already deployed to `chantipoint-dev`:
 Additional migrations applied and validated locally; not deployed to hosted development:
 
 2. `supabase/migrations/20261016000100_attendance_location_foundations.sql`
-3. `supabase/migrations/20261017000100_attendance_v2_contract.sql` (applied/tested locally; legacy gate remains 1).
+3. `supabase/migrations/20261017000100_attendance_v2_contract.sql`
+4. `supabase/migrations/20261017000200_employee_session_notes.sql` (all applied/tested locally; legacy gate remains 1).
 
 Keep the initial committed migration unchanged as the baseline. Future schema changes require new migrations, local validation, and explicit approval before hosted deployment.
 
@@ -48,7 +49,7 @@ Future tables for correction requests, anomaly review, reporting snapshots, rete
 
 The new migration adds nullable `companies.factory_latitude numeric(9,6)`, `factory_longitude numeric(9,6)`, and `factory_radius_meters integer`. They must be all NULL or all present, with valid coordinate ranges and a positive radius. No actual coordinates, default coordinates, or production radius are seeded. Existing SELECT/RLS scope is retained; neither employees nor administrator clients gain direct configuration writes.
 
-`work_sessions.location_context` additionally accepts `location_unverified`. `employee_note text` is nullable and limited to 1,000 characters; it is separate from site descriptions and event notes. The latest target is owner-authorized overwrite-only saves while active, a final edit atomic with manual checkout, and read-only after closure, without note versions/history/correction events. Note writes/UI are deferred to M2.3b.2b. No client write grant or note RPC is added.
+`work_sessions.location_context` additionally accepts `location_unverified`. `employee_note text` is nullable and limited to 1,000 characters; it is separate from site descriptions and event notes. The latest target is owner-authorized overwrite-only saves while active, a final edit atomic with manual checkout, and read-only after closure, without note versions/history/correction events. M2.3b.1 adds no client write grant or note RPC. M2.3b.2b now implements owner-only note writes and final-note checkout; Flutter UI remains pending.
 
 The private observation validator no longer requires external_worksite. It still checks matching session/company/employee identity and active lifecycle on INSERT/UPDATE. Existing coordinate pairs, ranges, nonnegative accuracy, evidence foreign keys, RLS, and grants remain unchanged. Checkout evidence must be inserted before the transaction closes the session. The factory monitoring constraint stays: foreground fixes do not imply background monitoring.
 
@@ -90,6 +91,22 @@ python -B supabase/tests/integration/m2_3b_2a_concurrency_test.py
 
 It temporarily enables v2 locally, commits fresh fictional fixtures without factory configuration for independent connections, restores the exact original gate and deletes only its own fixture IDs. It verifies all eight table counts afterward. Stop local resources after validation. No hosted deployment or cutover is authorized by these commands.
 
+## M2.3b.2b Employee Notes
+
+`20261017000200_employee_session_notes.sql` adds no columns or tables. `public.update_employee_note(uuid, text)` requires both arguments, active employee authorization and an owned active session. Explicit NULL clears the note; non-NULL text overwrites it exactly, up to 1,000 PostgreSQL characters. No history/audit/correction events are generated. The RPC is available in legacy mode and retains direct-write/RLS restrictions.
+
+The sole revised `check_out_v2` signature appends `p_note_action text default 'preserve'` and `p_employee_note text default null`. Preserve/replace/clear intent and exact content are included in every v2 checkout hash. The final note and closure are one atomic UPDATE, with event/evidence writes in the same transaction. The old 12-argument overload/private implementation signature is removed; legacy hashes/signatures and v2 check-in remain unchanged. Pre-M2.3b.2b experimental v2 checkout hashes are incompatible; none existed in the inspected local database, and v2 has not been deployed to or activated on hosted development. See [exact contract and retry limitations](attendance-backend-contract.md#employee-notes--m23b2b).
+
+Final local validation passed **664 pgTAP assertions**: 70 + 71 + 427 retained, plus 96 note assertions. The existing no-note-RPC assertion now expects one narrow RPC, reflecting the intended contract change. Both integration harnesses passed nine overlapping scenarios and 54 assertions. The first note-suite run stopped on a missing quote in test SQL; fixed, then both the dedicated 96 and full 664 assertions passed. No migration or production-function failure occurred.
+
+Four migrations remain recorded locally, gate 1, all eight checked tables empty, temporary pgTAP removed. The database stopped cleanly and Docker Desktop is stopped; its existing container/volume are preserved. No reset, pull, hosted change or Flutter/Android retest occurred. Run the new concurrency harness only against the deliberately started local database:
+
+```powershell
+python -B supabase/tests/integration/m2_3b_2b_notes_concurrency_test.py
+```
+
+It imports the existing harness transport and cleans only checked-new fictional fixture IDs, without factory configuration. Active saves serialize without history/version checks or an independent command journal; last serialized save wins. An uncertain save needs a fresh read and employee reconciliation before retry, to avoid overwriting newer text. Future Flutter must serialize saves and freeze final-note intent/text in its protected checkout journal before client cutover. This slice does not authorize deployment or activation.
+
 ## Security Model
 
 Supabase Auth remains the source of login identity. `user_profiles.auth_user_id` links each application user to `auth.users.id`.
@@ -101,7 +118,7 @@ Application roles are held in `role_assignments`:
 - `employee`
 - `administrator`
 
-Direct client writes to application tables are not granted. Authenticated users receive read access only where RLS permits it. Attendance mutations use the guarded legacy RPCs `public.check_in(...)` / `public.check_out(...)`, or the new v2 RPCs after an approved contract cutover.
+Direct client writes to application tables are not granted. Authenticated users receive read access only where RLS permits it. Attendance mutations use the guarded legacy RPCs `public.check_in(...)` / `public.check_out(...)`, or the new v2 RPCs after an approved contract cutover. Note edits use the owner-only `public.update_employee_note(...)` RPC, including in legacy mode.
 
 Active employees can read their own attendance records. Revoking the employee role removes that employee-role access even if the profile remains active. Active administrators can read company-scoped historical records. Revoking the administrator role removes company-wide access; if the same person also has an active employee role, they keep only their own employee access. Disabled profiles lose protected attendance access. Anonymous users receive no table access.
 
@@ -185,14 +202,14 @@ Planned V1 account flow:
 
 ## Local Validation Commands
 
-For repeat local validation, first inspect the existing database and migration state. Once the database-only service is deliberately running, apply only pending local migrations without resetting data, then run all three pgTAP files:
+For repeat local validation, first inspect the existing database and migration state. Once the database-only service is deliberately running, apply only pending local migrations without resetting data, then run all four pgTAP files:
 
 ```powershell
 supabase migration up --local
 supabase test db
 ```
 
-These commands passed during M2.3b.2a validation (568 pgTAP assertions, zero failures); all three migrations are already applied locally. Do not reset the database without explicit approval. If it is stopped, use only already available local resources for a deliberate database-only start; do not pull images or start the full stack for this validation. Keep C: above the 5 GB threshold. Stop local services when finished, preserving the database volume.
+These commands passed during M2.3b.2b validation (664 pgTAP assertions, zero failures); all four migrations are already applied locally. Do not reset the database without explicit approval. If it is stopped, use only already available local resources for a deliberate database-only start; do not pull images or start the full stack for this validation. Keep C: above the 5 GB threshold. Stop local services when finished, preserving the database volume.
 
 Do not run `supabase link`, `supabase db push`, or any hosted mutation without explicit human approval for that operation.
 
@@ -267,7 +284,7 @@ The tests cover:
 - Production approval of evidence-quality, boundary and freshness thresholds; conservative development rules are implemented in the gated M2.3b.2a backend.
 - Coordinated client support for the implemented independent arrival/departure outcome and reason contracts; the gated backend permits otherwise authorized checkout with insufficient location.
 - Coordinated client/RPC cutover and existing version-1 pending-command recovery.
-- M2.3b.2b owner-authorized overwrite-only notes, including atomic final checkout edit without note history/versions; historical checkout_reason_code cleanup audit remains separate.
+- Flutter integration for the implemented owner-authorized overwrite-only notes and atomic final checkout edit, with protected journal payloads and uncertain-save reconciliation; historical checkout_reason_code cleanup audit remains separate.
 - Formal administrator provisioning workflow and audit requirements.
 - Administrator closure/review workflow when a profile is disabled while the employee has an active work session.
 - Correction-request, anomaly, retention, notification, and reporting schemas.

@@ -1,6 +1,6 @@
 # ChantiPoint Logical Data Model v0.1
 
-This document describes the target logical model, including future entities that are not deployed. The M2.3b.1 migration adds only factory configuration, a third location context, employee note storage, and context-independent active-session evidence validation. It has been applied and tested locally; hosted deployment remains pending separate approval. M2.3b.2a adds the gated v2 attendance RPCs and bounded event metadata; note writes and coordinated Flutter acquisition remain pending. See [Attendance Backend Contract](attendance-backend-contract.md). See [Backend Setup](backend-setup.md#m23b1-foundations-and-compatibility) for the exact current boundary.
+This document describes the target logical model, including future entities that are not deployed. The M2.3b.1 migration adds only factory configuration, a third location context, employee note storage, and context-independent active-session evidence validation. It has been applied and tested locally; hosted deployment remains pending separate approval. M2.3b.2a adds the gated v2 attendance RPCs and bounded event metadata. M2.3b.2b adds note writes using only the existing column and finalizes checkout note intent/hash; coordinated Flutter acquisition/note UI remain pending. See [Attendance Backend Contract](attendance-backend-contract.md). See [Backend Setup](backend-setup.md#m23b1-foundations-and-compatibility) for the exact current boundary.
 
 ## Design Principles
 
@@ -95,7 +95,7 @@ Represents one declared work period at one workplace.
 | `current_monitoring_status` | Not applicable, pending, enabled, disabled_detected, permission_revoked_detected, unavailable, inconclusive, stopped. |
 | `location_context` | Schema accepts factory, external_worksite, and location_unverified after M2.3b.1; server-derived classification is implemented by the gated M2.3b.2a RPCs. Historical context does not establish GPS verification. |
 | `site_description` | Target: automatic factory name or optional employee-entered external/unverified workplace description; not a general note. |
-| `employee_note` | Nullable general business/work-session text, maximum 1,000 characters. Future owner-authorized active-session saves overwrite without edit history; a final edit is atomic with manual checkout, then read-only. No note versions, correction/revision events or history table. Note writes/UI deferred to M2.3b.2b. |
+| `employee_note` | Nullable general business/work-session text, maximum 1,000 characters. Owner-authorized active-session saves overwrite without edit history; v2 checkout atomically preserves/replaces/clears the final note, then read-only. No note versions, correction/revision events or history table. Note RPCs implemented locally in M2.3b.2b; UI pending. Standalone saves serialize without a version check/journal; last save wins. The existing updated_at changes, with no revision metadata added. |
 | `started_at` | Server-accepted session start time in UTC. |
 | `ended_at` | Server-accepted session end time in UTC, nullable while active. |
 | `checkout_source` | Manual, automatic, administrator correction, or null while active. |

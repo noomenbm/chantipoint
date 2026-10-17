@@ -15,6 +15,8 @@ M2.3b.1 adds nullable factory configuration, `location_unverified`, employee not
 
 M2.3b.2a implements the gated server-authoritative attendance contract locally: 568 pgTAP assertions passed (the original 141 plus 427 new), along with four real concurrency scenarios. Hosted resources and Flutter are unchanged; v2 writes remain disabled until an approved cutover. See [Attendance Backend Contract](docs/attendance-backend-contract.md) for exact signatures, evidence handling, replay and deployment boundaries.
 
+M2.3b.2b adds owner-only overwrite notes and atomic preserve/replace/clear at v2 checkout. All 664 pgTAP assertions passed (568 existing plus 96 new); both concurrency harnesses passed nine scenarios and 54 assertions. No note history is retained. Note UI/journal integration and hosted deployment remain pending; the gate is still legacy mode 1.
+
 Requirements v0.1 remain a draft. Completed development checks do not establish production readiness; privacy, business rules, operational controls, and location feasibility still have open decisions.
 
 ## Run the Flutter App

@@ -1,6 +1,6 @@
-# M2.3b.2a Attendance Backend Contract
+# Attendance Backend Contract — M2.3b.2a and M2.3b.2b
 
-Implemented in `20261017000100_attendance_v2_contract.sql`, after both existing migrations. Applied and tested locally only. Hosted `chantipoint-dev` is unchanged. The deployment gate remains **legacy mode (1)**; new v2 writes require a separately approved cutover. Flutter remains on its current GPS-free factory workflow.
+Attendance is implemented in `20261017000100_attendance_v2_contract.sql`; `20261017000200_employee_session_notes.sql` adds overwrite-only notes and finalizes the v2 checkout signature/hash. All four migrations are applied and tested locally only. Hosted `chantipoint-dev` is unchanged. The deployment gate remains **legacy mode (1)**; new v2 writes require a separately approved cutover. Flutter remains on its current GPS-free factory workflow.
 
 ## Exact Public Signatures
 
@@ -34,7 +34,9 @@ public.check_out_v2(
   p_services_enabled boolean default null,
   p_location_result text default 'unknown',
   p_provider text default 'unknown',
-  p_replay_only boolean default false
+  p_replay_only boolean default false,
+  p_note_action text default 'preserve',
+  p_employee_note text default null
 ) returns jsonb
 ```
 
@@ -51,6 +53,7 @@ The caller supplies no authoritative classification, employee/company/actor iden
 | Acquisition result | `fix`, `permission_denied`, `location_services_disabled`, `timeout`, `provider_error`, `unavailable`, `unknown`; NULL normalizes to `unknown`. |
 | Provider | `gps`, `network`, `fused`, `emulator`, `unknown`; NULL normalizes to `unknown`. A provider label confers no trust. |
 | Replay-only | Boolean, default FALSE. TRUE performs hash-checked reconciliation with no attendance writes. Explicit NULL is an invalid request. |
+| Checkout note action | `preserve` (default), `replace`, or `clear`; explicit NULL is invalid. Preserve/clear require NULL note text; replace requires non-NULL text of at most 1,000 characters. |
 
 Malformed protocol values, unauthorized access, conflicting commands and backend failures remain distinct from insufficient location evidence. Invalid/partial/non-finite coordinates, insufficient accuracy and unusable timestamps do not themselves reject otherwise authorized attendance.
 
@@ -126,15 +129,17 @@ Administrators use existing company-scoped RLS to read sessions/events and join 
 
 ## Idempotency and Authorization
 
-New RPCs lock the authenticated profile, active employee role, company and target session in that order. The profile lock serializes attendance per employee; existing unique indexes remain the final protection. Disabled/revoked employees cannot replay protected data. A suspended company blocks new check-in while authorized checkout of an existing session remains possible.
+Attendance and note-update RPCs lock the authenticated profile, active employee role, company and target session in that order. The profile lock serializes attendance per employee; existing unique indexes remain the final protection. Disabled/revoked employees cannot replay protected data. A suspended company blocks new check-in while authorized checkout of an existing session remains possible.
 
-V2 request hashes include protocol/operation, resolved employee/company, target session, normalized submitted description, original action/fix times, coordinates, accuracy, provider and diagnostic values. They exclude the operational replay flag, current policy/configuration, derived outcome and server timestamps. Numeric tokens remove insignificant scale; timestamp tokens use epoch microseconds. Invalid evidence is hashed before sanitizing its stored representation.
+V2 request hashes include protocol/operation, resolved employee/company, target session, normalized submitted description, original action/fix times, coordinates, accuracy, provider and diagnostic values. They exclude the operational replay flag, current policy/configuration, derived outcome and server timestamps. Numeric tokens remove insignificant scale; timestamp tokens use epoch microseconds. Invalid evidence is hashed before sanitizing its stored representation. M2.3b.2b wraps the base hash for every v2 checkout, including `preserve`, in SHA-256 over the PostgreSQL JSONB serialization of `attendance_hash`, `note_action`, and `employee_note`. It binds the exact final-note intent/content without storing a note copy in event/evidence metadata. Check-in and all legacy hashes remain unchanged.
+
+This finalizes an undeployed, unactivated v2 contract: a pre-M2.3b.2b v2 checkout hash is not compatible, including one that preserved the note. No old v2 checkout receipts existed in the inspected local database, and v2 has never been deployed to or activated on hosted development. Local cutover simulations restore gate 1. Do not silently backfill hashes or reconcile old experimental receipts as new commands; any such data needs explicit transition review.
 
 A replay-only request must carry the complete original semantic payload. Missing or changed evidence/diagnostics conflicts with the stored hash. Missing stored hashes fail closed; an unavailable original outcome raises `attendance_receipt_unavailable` instead of being reconstructed. Matching receipts are returned before freshness evaluation or new-write gating, preserving the original event, classification and policy after configuration changes, policy changes, or subsequent checkout. Current session lifecycle/review fields may have advanced. There is no GPS reacquisition or evidence regeneration on replay.
 
 The original v1 bodies are relocated to private functions without changing their hashing semantics. No client can execute them directly. V1 hashes retain their original timestamp serialization; do not apply v2 canonicalization to legacy commands.
 
-Expected errors retain stable machine messages: `authentication_required`, `employee_role_required`, `company_not_active`, `active_session_not_found_for_employee`, `active_session_exists`, `session_not_active`, `idempotency_key_conflict`, `invalid_idempotency_key`, `invalid_attendance_request`, `attendance_contract_not_enabled`, and `attendance_client_update_required`. Future Flutter code must map these to safe French messages, without exposing raw database exceptions.
+Expected errors retain stable machine messages: `authentication_required`, `employee_role_required`, `company_not_active`, `active_session_not_found_for_employee`, `active_session_exists`, `session_not_active`, `idempotency_key_conflict`, `invalid_idempotency_key`, `invalid_attendance_request`, `invalid_employee_note_operation`, `employee_note_too_long`, `attendance_receipt_unavailable`, `attendance_contract_not_enabled`, and `attendance_client_update_required`. Future Flutter code must map these to safe French messages, without exposing raw database exceptions.
 
 ## Gate and Legacy Compatibility
 
@@ -149,13 +154,48 @@ Every attendance writer takes shared transaction advisory lock `(174811, 2)`. A 
 
 Flutter still cannot parse `location_unverified`, accept factory names during reconciliation, persist GPS in journal version 1, or check out all contexts. Upgrade those paths and reconcile/drain old journals before cutover. Do not blindly convert, discard or resubmit an old pending command with a new payload/key. Real-location journals need strict version/owner/environment binding, device-protected encryption, backup/log exclusion and an approved retention/recovery policy before real employee use. No such client changes are implemented here.
 
-## Employee Note Boundary
+## Employee Notes — M2.3b.2b
 
-The approved note is general business/work-session text, maximum 1,000 characters. Future active-session saves overwrite the previous value without history. The employee can make a final edit atomically with manual checkout, after which the final note is read-only. No note versions, correction events, audit/revision metadata or history tables are planned. Ownership and active-session checks remain required. Future checkout must distinguish preserve/clear/replace and coordinate its request hash and client journal contract.
+```sql
+public.update_employee_note(
+  p_work_session_id uuid,
+  p_employee_note text
+) returns jsonb
+```
 
-M2.3b.2a does not implement note writes or alter existing note values. M2.3b.2b and Flutter integration remain separate work.
+Both arguments are required; omitting the note argument cannot accidentally clear it. A non-NULL value adds/replaces the note, and explicit SQL/JSON NULL clears it. An empty string remains empty text; whitespace and Unicode are preserved exactly without trimming or normalization. Limits use PostgreSQL `char_length`: 1,000 Unicode code points, not UTF-8 bytes or grapheme clusters. Combining marks count separately; future client validation must match this rule.
 
-## Actual Local Validation
+An accepted response is `{"status":"updated","session_id":"<session UUID>","employee_note":"<current note>"}`; cleared notes return JSON NULL. The RPC authenticates an active profile with an active employee role, requires session ownership/company identity, and locks an active session. Administrator-only, revoked, disabled and anonymous users cannot edit. All closure statuses make the note read-only. A suspended company does not prevent an otherwise authorized owner from annotating an existing active session. The standalone RPC is available in legacy mode and grants no direct table-write access.
+
+This is one general business/work-session note, unrelated to correction requests or technical GPS reasons. Saves overwrite `work_sessions.employee_note`; only the existing row `updated_at` changes alongside it. There are no note versions, edit/correction/audit events, revision metadata, history tables or copies of prior note text. Existing company-scoped administrator read access is retained.
+
+V2 checkout uses these explicit commands:
+
+| Intent | Arguments | Effect |
+| --- | --- | --- |
+| Preserve | Omit both new arguments, or `p_note_action='preserve'` with NULL note | Keep the value present when the locked checkout executes. |
+| Replace | `p_note_action='replace'`, non-NULL `p_employee_note` | Save the supplied exact text, including empty text. |
+| Clear | `p_note_action='clear'`, NULL note | Store SQL NULL. |
+
+Supplying text with preserve/clear, NULL with replace, an unknown/NULL action, or oversized text is rejected without attendance writes. The old 12-argument checkout function is dropped without CASCADE; the single 14-argument signature accepts old-shaped calls through defaults. There is no callable overload bypass. The private implementation is similarly replaced with one non-client-executable signature; existing wrappers resolve its preserve defaults. Checkout acknowledgements retain their existing ten fields; no note is duplicated into the receipt/event metadata.
+
+The final note and closure use one UPDATE under the session lock, in the same transaction as the event, evidence and stored command hash. Any failure rolls back all of them. Replay validates the original full payload, including note action/text, then returns the original receipt without applying the note again. Changed intent/text conflicts. A successful checkout leaves the final note read-only.
+
+Standalone saves have no idempotency key, independent command journal, version check or history. Active saves serialize; the last serialized save wins, including a delayed retry of older text. Repeating the same value is allowed but is not exactly-once acknowledgment. After an uncertain response, reload the current note and reconcile with the employee before retrying; do not blindly replay stale saves. There is no server mechanism to recover overwritten text or distinguish simultaneous editors. Future Flutter should serialize saves per session and coordinate pending saves with checkout. Freeze the final note intent/text with the entire immutable checkout payload/key in its protected journal. A pending save ordered before preserve checkout is kept; a save ordered after closure fails. These limitations do not weaken attendance checkout idempotency.
+
+No Flutter note UI, journal extension, hosted deployment or v2 activation is implemented in this slice.
+
+## M2.3b.2b Local Validation
+
+- `supabase migration up --local` applied only `20261017000200`, without changing committed migrations or resetting data. Final function bodies match the migration sources; original legacy bodies remain unchanged.
+- Final `supabase test db --local`: **664 passed, zero failures** across M2.1 70, M2.3b.1 71, M2.3b.2a 427 and M2.3b.2b 96. The existing 568 assertions are retained. The old “no note RPC” assertion now expects exactly one dedicated note RPC; its preserve-note test description was updated. This is the intentional M2.3b.2b contract change, not weakened authorization coverage.
+- The first new-suite run stopped on a missing quote in the test SQL after 39 passing assertions. The quote was fixed; the dedicated suite passed 96 and the complete rerun passed 664. The migration and production functions did not fail.
+- Both integration harnesses passed: existing attendance 4 scenarios/26 assertions; new notes 5 scenarios/28 assertions. Each uses real overlapping transactions, proves lock waiting, removes only checked-new fictional fixture IDs, and restores the exact gate/table counts. No committed factory configuration is used.
+- Note races cover save-before-preserve-checkout, checkout-before-late-save, concurrent active saves, identical final-note checkouts, and conflicting final-note checkouts. Rollback-only SQL tests additionally inject failure after the final update to verify rollback of the note, closure, event, evidence and stored receipt.
+- Disk checks: C: free space was 12.43 GiB before startup, 9.82 GiB at the running-service check, and 11.90 GiB after shutdown; all checks stayed above the 5 GiB stop threshold. No images were pulled.
+- Final database state: four migrations recorded, gate 1, all eight checked tables empty, temporary pgTAP removed. PostgreSQL stopped cleanly; Docker Desktop is stopped with the existing container/volume retained. Hosted development and Flutter are unchanged; Android was not retested.
+
+## M2.3b.2a Validation Record (Historical)
 
 - `supabase migration up --local` applied this migration without reset or image pulls. Subsequent local function-body updates hardened NULL-gate, missing-hash and missing-outcome handling without resetting the database. All final function bodies were compared with the migration, allowing Windows line endings only.
 - `supabase test db`: 568 passing assertions across three suites: M2.1 70, M2.3b.1 71, M2.3b.2a 427. The original 141 assertions/files are unchanged. The new suite was also run separately to verify its count.
@@ -163,6 +203,6 @@ M2.3b.2a does not implement note writes or alter existing note values. M2.3b.2b 
 - The first concurrency run passed its races but cleanup failed with SQLSTATE 42601 because `pg_get_functiondef` output needed a terminating semicolon. The harness was corrected, its own fixtures were verified and removed, and the entire test passed on rerun. No attendance migration or pgTAP assertion failed.
 - The pgTAP configuration/cutover fixtures roll back. The concurrency harness commits only newly generated fictional IDs with no factory configuration, cleans only those IDs in `finally`, restores the exact original gate, and verifies all eight table counts return to their initial values.
 - Disk checks: C: had 12.16 GiB free before database startup and 11.48 GiB at the final shutdown check; observed free space remained above the 5 GiB stop threshold. No images were pulled.
-- Final local state: three migrations recorded, gate 1, all eight checked tables empty, temporary pgTAP extension removed, database/Docker stopped with the existing volume retained. Hosted development is unchanged. Flutter and Android were not retested.
+- State at the end of M2.3b.2a: three migrations recorded, gate 1, all eight checked tables empty, temporary pgTAP extension removed, database/Docker stopped with the existing volume retained. Hosted development is unchanged. Flutter and Android were not retested.
 
 Tests cover location failures without automatic closure, quality/time boundaries, all nine arrival/departure combinations, review preservation, atomic rollback on evidence-write failure, semantic hash conflicts, policy/configuration replay, authorization/RLS, private helper ACLs, and future gate behavior. No production readiness is claimed.

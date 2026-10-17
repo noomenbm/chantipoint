@@ -69,7 +69,7 @@ select is(private.attendance_write_contract(), 1, 'deployment starts in legacy m
 select is((select count(*)::int from information_schema.columns where table_schema = 'public'
   and table_name = 'work_sessions' and column_name = 'employee_note_version'), 0, 'no deferred note version added');
 select is((select count(*)::int from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-  where n.nspname = 'public' and p.proname like '%employee_note%'), 0, 'no note editing RPC added');
+  where n.nspname = 'public' and p.proname like '%employee_note%'), 1, 'M2.3b.2b adds only the dedicated employee-note RPC');
 select is((select count(*)::int from pg_proc p join pg_namespace n on n.oid = p.pronamespace
   where n.nspname = 'public' and p.proname in ('check_in', 'check_out', 'check_in_v2', 'check_out_v2')), 4,
   'exactly one signature per exposed attendance RPC; no overload bypass');
@@ -380,7 +380,7 @@ begin
     v_out := pg_temp.contract_out((v_in->>'session_id')::uuid, 'contract-review-good-out-' || v_i);
     return next is(v_out->>'review_status', v_status, 'successful checkout preserves ' || v_status);
     return next is((select employee_note from public.work_sessions where id = (v_in->>'session_id')::uuid),
-      'General business note', 'checkout leaves deferred employee note untouched for ' || v_status);
+      'General business note', 'checkout without note action leaves employee note untouched for ' || v_status);
     v_in := pg_temp.contract_in('contract-review-poor-in-' || v_i);
     update public.work_sessions set review_status = v_status where id = (v_in->>'session_id')::uuid;
     v_out := pg_temp.contract_out((v_in->>'session_id')::uuid, 'contract-review-poor-out-' || v_i, '{"permission":"denied"}');
