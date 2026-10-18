@@ -192,6 +192,92 @@ deleting an original, handle interrupted migrations and both-copy conflicts,
 retain unknown outcomes, and preserve wrong-account records. File deletion
 cannot guarantee erasure of flash remnants or previously created backups.
 
+## C2c.1 isolated migration planner
+
+`legacy_journal_migration.dart` adds host-side planning only. It imports no
+filesystem, native channel, auth client or attendance repository and is not wired
+into application startup. The legacy writer/controller, native recovery policy,
+format 2 and journal transitions are unchanged. No actual source is migrated.
+
+Public interfaces:
+
+- `LegacySourceSnapshot.file` copies at most 64 KiB of valid bytes into an
+  immutable snapshot and computes actual SHA-256. Invalid byte values or oversized
+  snapshots throw a data-free `JournalException(corrupt)` before hashing; callers
+  must retain those sources and block. `absent` is only a supplied observation;
+  `unreadable` and temporary/unexpected artifact observations cannot mean absence.
+- `LegacyApprovalTrust` defaults to `unverified`. `established` is the eventual
+  caller's assertion that an external attestation's authority and originating
+  deployment/Auth/company/profile relationship have been independently verified.
+  It is not an issuer, approval mechanism, or proof discovered by this component.
+- `LegacyJournalMigration.evaluate` accepts an explicit expected full binding,
+  snapshot, `JournalReadResult`, and optional existing `LegacyBindingApproval`.
+  It checks computed digest, exact approved bytes, actual/expected basename and
+  all five binding fields, reusing `LegacyJournalImport.prepare` for parsing.
+- `LegacyMigrationPlan` reports a step/issue, an existing record when applicable,
+  an in-memory `importRecord` only for an import proposal, and immutable
+  `requiredChecks`. It has no execute, delete, dispatch or cleanup-attestation API.
+
+`crypto` 3.0.7 is now a direct, pinned dependency for SHA-256; it was already
+locked transitively and cached. No package version was upgraded. Approval remains
+external: a plausible digest, current configuration/login, matching UUIDs or keys,
+and server absence/`not_found` cannot establish origin. Unverified/missing approval
+reveals no executable import or resumable record. A digest authenticates neither
+the issuer nor the historical binding.
+
+| Supplied observations | Planner outcome |
+| --- | --- |
+| Source absent, no migration metadata, valid/absent target | `noAction`; preserve any unrelated valid target. |
+| Valid source but no established approval | `bindingRequired`; no import candidate. |
+| Approved unchanged finalized source; absent/eligible empty target without migration history | `importLegacy`; existing transition proposes `uncertain`, cleanup pending, no confirmation. |
+| Exact pending import with source present | `resumeCleanup`; retain original record, not a second import. |
+| Exact pending import with source absent | `resumeCleanup`; explicitly require durable target and source-absence verification. |
+| Completed migration, source absent | `noAction`; retain tombstone, receipt or later command. No fresh approval is required for this non-action; any supplied approval must be established and match migration identity. |
+| Completed migration, source present again | `blocked`; no deletion or reimport. |
+| Conflicting binding, command, frozen parameters or migration identity | `blocked`; preserve evidence. |
+| Temporary/unexpected artifacts, malformed source, unreadable storage, missing/invalidated key or blocked target | `blocked`; never reset or overwrite. |
+
+An absent source with a pending target requires externally approved original bytes;
+the planner rehashes/reparses them, never reconstructing an approval from the
+target. Pending equivalence checks protocol, operation, key, every parameter and
+the exact frozen `parameters_json`, plus source basename/digest, legacy owner and
+approval reference. Timestamp strings are never normalized. Differently formatted
+frozen JSON is conservatively blocked, not rewritten to fit; C2a's general
+semantic duplicate-prepare behavior is unchanged. Valid later revisions/phases and
+confirmed receipts are returned in the original record without modification.
+Completed migration metadata can accompany a later v2 command and is not compared
+as if that later command were the original legacy intent.
+
+Required future checks are explicit enum values: writer fencing, global source
+binding, source snapshot revalidation, target CAS, durable target verification,
+checked plaintext cleanup, durable source-absence verification, and cleanup
+completion CAS. Import plans list all eight. Resume plans omit import CAS;
+source-absent resume also omits source revalidation/deletion. These are outstanding
+obligations, not completed checks or permission to delete. `noAction` is not
+attendance confirmation, durable-cleanup certification or activation permission.
+
+Integration must retire/fence all legacy writers across restart and account/auth
+changes; disposal and an instance-local queue are insufficient. Verify the complete
+authenticated encrypted record and synchronize it and its directories before
+checked deletion; then synchronize/verify plaintext absence before attesting
+completion with the existing CAS. A readable record after a reported failed write
+does not prove the failed synchronization succeeded. A native durability barrier,
+lost-response handling and restart coordination are still required. Planner
+failures never move a record into the terminal blocked journal phase.
+
+A per-slot planner cannot enforce one-source/one-destination uniqueness. Durable
+cross-binding enforcement and external approval authority/reverification remain
+integration decisions. Legacy files still sit at the root of Android `filesDir`
+without reviewed backup/device-transfer exclusions; encrypted storage remains in
+`noBackupFilesDir`. Backup XML paths do not support filename wildcards, so dynamic
+legacy filenames need a reviewed exclusion strategy. Previously created backups,
+restored-source handling, writer retirement, native fault-injection validation,
+activation and C3 receipt-preserving coordination remain open. No v2 activation
+or power-loss/device-loss recovery guarantee is implied.
+
+Host validation results are recorded in Development Status. C2c.1 performs no
+Android build/runtime, native cleanup, migration execution or hosted operation.
+
 ## Native C2b implementation and activation boundary
 
 C2b implements Android Keystore AES-GCM and AtomicFile under

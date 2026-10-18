@@ -1,6 +1,35 @@
 # ChantiPoint Development Status
 
-Current slice: **M2.3c.C2b.1, limited duplicate-artifact recovery**. C2b is
+Current slice: **M2.3c.C2c.1, isolated host-side legacy migration planner**, based
+on committed `4225fcd`. Bounded immutable source snapshots now compute actual
+SHA-256 using cached `crypto` 3.0.7, promoted from transitive to direct dependency
+without a version upgrade. Strict C2a parsing/approval/schema/transitions are reused.
+Plans distinguish no action, binding required, import proposal, cleanup resumption
+and blocking. Original legacy command/key/timestamps remain unchanged; resumed
+records retain complete phase/revision/receipt state. Approved imports propose
+`uncertain` with plaintext cleanup pending and cannot dispatch.
+
+External approval authority/provenance is a caller trust obligation, defaulting
+to unverified. Plans explicitly list outstanding writer-fencing, global binding,
+snapshot/CAS, native durable verification and checked cleanup/absence obligations;
+they perform or authorize none of those operations. One-source/one-destination
+enforcement, approval/restart policy, backup exclusions, writer retirement and C3
+activation remain pending. See [Secure Command Journal](secure-command-journal.md).
+The live legacy store/controller/startup and native implementation are unchanged;
+no real migration, Android work, RPC or hosted operation occurred.
+
+C2c.1 host validation: `flutter analyze --no-pub` passed with no issues after
+correcting one new test's brace-style finding. The full
+`flutter test --no-pub --concurrency=1` suite passed **704/704**, zero failures or
+skips: 583 retained tests plus 121 planner/source-verification tests. Coverage
+includes known empty/abc SHA-256 vectors, false digests, exact byte/whitespace
+changes, full binding conflicts, both legacy operations, uncertain/confirmed
+resumption with present/absent source, receipts/revisions, completed metadata,
+artifacts, malformed/oversized input, storage failures and immutable inputs.
+`flutter pub get --offline` reused cached packages; `git diff --check` and checks
+of the new files passed. No Android/native durability validation was performed.
+
+Previous slice: **M2.3c.C2b.1, limited duplicate-artifact recovery**. C2b is
 committed at `69095c7`. Recovery is isolated from the live controller: only main
 plus one fully validated, byte-identical .new/.bak can normalize. Ambiguous,
 orphan, invalid and three-artifact histories remain preserved and blocked.
