@@ -529,8 +529,9 @@ relogin. Its asynchronous acquisition must settle its local work and return a
 memory-only scope for the exact five-field binding and generation. The scope
 pins a usable access token, independently trusted base project URI/publishable
 key and a current-authorization observation. UUID/token presence and a decoded
-JWT do not establish authorization or deployment provenance. Production issuance,
-refresh coordination and ownership/fencing remain unimplemented.
+JWT do not establish authorization or deployment provenance. C3.3 below adds an
+opt-in lifecycle-backed issuer; production composition and ownership/fencing
+remain gated.
 
 The adapter checks authority currency before acquisition, then checks both
 currency observations, all five binding fields, generation and exact trusted
@@ -613,6 +614,110 @@ and canonical null/errors retain confirmed receipts as `confirmedNeedsRefresh`.
 Safe codes do not establish permanent account denial or justify session cleanup.
 Actual host results are recorded in Development Status; native durability,
 production auth, real RLS/runtime integration and deployment remain unvalidated.
+
+## C3.3 combined auth owner and credential authority
+
+`AttendanceAuthOwner` issues C3.1 contexts and implements C3.2 request authority
+using the SAME application-lifetime generation source. It observes the existing
+`AuthController` and its exact `SupabaseAuthRepository`; mismatched pairs and a
+repository REST endpoint differing from trusted deployment configuration are
+rejected. It is not instantiated in main, a screen or live attendance. No legacy
+writer, coordinator/HTTP sequencing, migration, SQL or hosted setting changes.
+
+The auth additions are read-only evidence: controller disposal/repository pairing;
+repository operation number, current SDK session identity, public auth events and
+an attendance-only successful-authorization attestation. That attestation joins
+the exact returned AuthorizedUser, employee role, operation number and SDK session
+object. It is withheld if the SDK session changes during the authorization lookup.
+Existing login/restore/denial/logout results, query counts and UI decisions are
+unchanged. New attendance authority is blocked rather than repairing ambiguous
+auth state or granting access using matching user UUIDs.
+
+Lifecycle hooks:
+
+- The controller publishes `signingOut` synchronously BEFORE awaiting the
+  repository. The owner invalidates immediately, including while SDK sign-out is
+  still queued. `authenticating` similarly invalidates at login/switch initiation.
+- Repository `_operation` changes synchronously at restore, login and logout
+  entry. Guards reject old authority immediately even for repository-direct
+  logout before the SDK removes its session or emits `signedOut`.
+- Resume/revalidation `checkingSession`, blocked states and employee authorization
+  loss invalidate old attempts. Later successful authorization creates a fresh
+  epoch, never revives old ones; administrator-only authorization cannot issue.
+  Server-side revocation is observed through existing authorization checks, not
+  new polling/realtime monitoring; server authorization/RLS still applies between
+  those checks.
+- Exact SDK session-object comparison blocks unobserved replacements BEFORE the
+  asynchronous public event arrives. Signed-in/out, initial-session, recovery and
+  user-update events revoke the old epoch. No SDK internal synchronous stream or
+  private session-version API is used.
+- A `tokenRefreshed` event alone is insufficient: installed gotrue `setSession`
+  can emit it for another login. Continuity also requires the approved login's
+  nonempty UUID `session_id`, matching subject/user, unchanged authorization
+  operation/user attestation and exact current event-session object. Only then
+  may credentials advance within the same generation. Existing scopes retain
+  their original token bytes. Supabase documents `session_id` as the unique user
+  session identifier in [User Sessions](https://supabase.com/docs/guides/auth/sessions).
+
+Claim decoding is bounded and supplies a continuity marker/expiry only; it does
+NOT verify signatures, independently authorize an employee or establish project
+identity. Authority also requires successful existing server profile/role queries.
+Subsequent reads/RPCs remain subject to server JWT validation and RLS. No new
+server session-revocation check or immediate server JWT invalidation is claimed.
+
+`AttendanceTrustedDeployment` supplies the environment ID, base project URI and
+publishable key independently of journals/current accounts/JWT issuer claims.
+Bindings are derived from that configuration plus the approved auth user,
+company and employee profile. URI/key validation and exact repository endpoint
+matching fail with safe codes. There is no file/environment loader, persisted
+credential, Session stringification, token logging or inference of legacy origin.
+
+Acquisition checks the captured generation BEFORE calling SDK `getSession`,
+allows submitted refresh work to settle, then checks generation and exact
+resolved/current/observed session identity again. Stale refresh responses or SDK
+fallback to another login cannot produce a scope. Missing/unusable expiry fails
+closed. Scope currency checks the original generation and pinned token expiry;
+refresh never rewrites an issued scope. No timeout detaches auth or HTTP work.
+
+Each issued context counts as an outstanding attempt until idempotent `release`.
+Release is not logout and leaves auth currency observable for stale-result guards.
+Screen disposal/timeout must not call it on submitted work. Application `close`
+revokes issuance and detaches listeners, but waits for normal context release;
+it neither cancels requests nor force-releases ownership. Existing C3.1 can
+therefore persist a valid late receipt in the original slot after logout/relogin
+or owner shutdown, without stale refresh/publication. Unsubmitted contexts must
+also be released by their issuer/caller. Never-ending work can keep shutdown
+pending. Generations are unique across owner replacement within this Dart
+isolate only; attempt counts are not native, process or restart fencing.
+
+Deliberately blocked cases and remaining composition requirements:
+
+- Missing/malformed login marker, wrong subject or ambiguous replacement during
+  profile/role lookup: no attendance authority despite a possibly authenticated
+  existing UI. A fresh successful validation must establish exact evidence.
+- Late attachment after an already-unobserved refresh cannot reconstruct login
+  continuity from UUIDs or the SDK's replayed last event. Attach before startup
+  validation, or perform fresh authorization before issuing contexts.
+- Pending refresh-event delivery temporarily blocks requests; observing proven
+  same-login refresh does not create a new generation. Different/unknown login
+  continuity revokes rather than silently adopting it.
+  Superseded refresh events cannot establish or revoke current session evidence;
+  exact-current guards keep an unobserved replacement blocked.
+- Current application auth mutations use controller/repository entrypoints.
+  Future SDK login/session-setter entrypoints must join the initiation boundary.
+  Arbitrary direct SDK login calls have no application initiation callback; only
+  actual session replacement can be observed. This is not universal interception
+  of SDK calls or other engines/processes.
+- A root application owner, trusted deployment/environment identity provisioning,
+  HTTP-client lifetime, durable writer/source ownership/fencing, migration
+  provenance, native recovery, reviewed backup policy, receipt consumption and
+  approved backend deployment/cutover remain uncomposed. No live v2 activation.
+
+`AttendanceAuthFailure` exposes only `configuration`, `contextInvalidated` or
+`credentialsUnavailable`, without credentials, identifiers or underlying errors.
+Real lifecycle behavior is host-tested using mocked Supabase auth/profile/role
+HTTP and fictional records; Android, hosted auth/RLS and native durability were
+not retested. Results are recorded in Development Status.
 
 ## Native C2b implementation and activation boundary
 

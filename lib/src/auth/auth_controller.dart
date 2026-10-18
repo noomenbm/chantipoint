@@ -49,6 +49,10 @@ class AuthController extends ChangeNotifier {
   late final StreamSubscription<AuthSessionEvent> _subscription;
   AuthViewState _state = const AuthViewState.checkingSession();
   AuthViewState get state => _state;
+  // Read-only lifecycle observations for application-owned attendance authority.
+  bool get isDisposed => _disposed;
+  bool usesRepository(AuthRepository repository) =>
+      identical(_repository, repository);
 
   int _operation = 0;
   bool _disposed = false;

@@ -1,6 +1,64 @@
 # ChantiPoint Development Status
 
-Current slice: **M2.3c.C3.2, isolated v2 HTTP transport and canonical reader**,
+Current slice: **M2.3c.C3.3, combined auth ownership and credential authority**,
+based on clean **`2ae472a`** on `feature/manual-attendance`.
+
+`AttendanceAuthOwner` now observes the real controller/repository lifecycle,
+issues C3.1 operation contexts and implements C3.2 credential authority from the
+same in-memory generation. It is not instantiated by main or a screen, and live
+check-in/out remains on the unchanged legacy controller. No new hosted requests,
+SQL, gate/v2 activation, migration, Android/native storage or GPS/UI work.
+
+Read-only auth hooks expose controller disposal/pairing, repository operation
+number, exact SDK session evidence and an attendance-only successful profile/role
+attestation. Logout/login invalidate at their synchronous initiation boundaries,
+including queued SDK logout; resume checks and authorization loss invalidate old
+attempts too. Auth decisions, queries and existing UI behavior are unchanged.
+Exact session-object guards block replacement before public event delivery.
+Same-login token refresh preserves the generation and existing scopes' tokens;
+the SDK refresh event PLUS matching approved server `session_id`/subject are
+required, since `setSession` can report refresh for another login.
+
+Credential acquisition awaits SDK refresh settlement and rechecks original
+generation/session evidence; it never adopts the current account as fallback.
+The complete binding is derived from trusted deployment configuration and the
+approved profile. Contexts survive screen/caller timeout and auth invalidation
+until normal release. Application owner close detaches listeners and waits for
+outstanding contexts rather than cancelling work or releasing ownership early.
+Real-owner + mocked-HTTP tests retain late receipts without stale refresh.
+
+C3.3 host validation:
+
+- `flutter test --no-pub --concurrency=1 test/attendance_auth_owner_test.dart`:
+  **40/40 passed**, zero failures/skips. Uses real AuthController/repository/SDK
+  with fictional mocked HTTP: initiation while credentials refresh, logout after
+  submission, relogin/switch, token refresh continuity, different-login
+  `setSession`, pre-event replacement, stale refresh results/events, authorization
+  loss, ambiguous profile lookup, late attachment, delayed bodies, context
+  release/close, concurrent attempts/acquisitions and caller timeout.
+- `flutter analyze --no-pub`: passed, no issues.
+- `flutter test --no-pub --concurrency=1`: **1004/1004 passed**, zero failures/skips
+  (964 retained plus 40 new), in approximately 1 minute 7 seconds. Five duplicate
+  test registrations found during review were removed before final validation.
+- `git diff --check` and source/test UTF-8/whitespace/newline/format checks passed.
+- C: **9.93 GiB** initially and **9.35 GiB** before/after the final full suite; E:
+  **23.68 GiB** free. Final available RAM: **1.63 GiB**. All measurements exceeded
+  the 5 GiB C: stop rule. Existing
+  caches/dependencies were reused; no SDK/package downloads, Android build,
+  emulator, Docker, destructive cleanup or pagefile changes.
+
+Missing/ambiguous login evidence fails closed for attendance only. An owner
+attached after an unobserved refresh requires fresh validation; attach before
+startup auth in future composition. All application-initiated auth mutations
+must use the controller/repository boundary; arbitrary direct SDK mutation
+initiation cannot be universally intercepted. Only in-isolate ownership is
+implemented. Root composition, trusted environment provisioning, durable global
+writer/source assignment/fencing, migration provenance, native recovery, backup
+review, receipt consumption/compaction and approved backend deployment/cutover
+remain gated. No Android, hosted auth/RLS or power-loss validation is claimed.
+See [Secure Command Journal](secure-command-journal.md#c33-combined-auth-owner-and-credential-authority).
+
+Previous slice: **M2.3c.C3.2, isolated v2 HTTP transport and canonical reader**,
 based on clean reviewed **`622c762`** on `feature/manual-attendance`.
 
 `AttendanceRequestAuthority` and its memory-only request scope supply the trust

@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'auth_failure.dart';
 import 'auth_repository.dart';
+import 'auth_session_evidence.dart';
 import 'authorized_user.dart';
 
 class SupabaseAuthRepository implements AuthRepository {
@@ -15,6 +16,33 @@ class SupabaseAuthRepository implements AuthRepository {
   AuthFailureKind? _terminationReason;
   Session? _authorizedSession;
   Future<void> _authCommands = Future.value();
+  AuthorizedSessionEvidence? _attendanceAuthorization;
+
+  // Additive evidence only: no new queries, auth mutations or changed UI result.
+  // Operation changes synchronously at restore/login/logout initiation, including
+  // while an SDK logout is still queued behind an earlier auth command.
+  int get authorizationOperation => _operation;
+  String get attendanceRestUrl => _client.rest.url;
+  AuthSessionEvidence? get currentCredentials {
+    final session = _client.auth.currentSession;
+    return session == null ? null : AuthSessionEvidence(session);
+  }
+
+  AuthorizedSessionEvidence? get attendanceAuthorization =>
+      _attendanceAuthorization?.operation == _operation
+      ? _attendanceAuthorization
+      : null;
+
+  Stream<AuthSessionObservation> get attendanceSessionChanges =>
+      _client.auth.onAuthStateChange.map(AuthSessionObservation.new);
+
+  // The caller must check its original epoch before and after this SDK lookup.
+  // getSession may refresh, or return a stale result after a concurrent mutation;
+  // its result alone never grants attendance authority.
+  Future<AuthSessionEvidence?> resolveAttendanceCredentials() async {
+    final session = await _client.auth.getSession();
+    return session == null ? null : AuthSessionEvidence(session);
+  }
 
   @override
   bool get hasSession => _client.auth.currentSession != null;
@@ -100,6 +128,16 @@ class SupabaseAuthRepository implements AuthRepository {
       final user = await _loadAuthorizedUser(operation, session.user);
       _ensureCurrent(operation, userId);
       _authorizedSession = _client.auth.currentSession;
+      // Withhold attendance attestation if any SDK session replacement occurred
+      // during authorization. A new successful validation can establish it; do
+      // not change the existing auth outcome or infer same-login continuity here.
+      _attendanceAuthorization = identical(session, _client.auth.currentSession)
+          ? AuthorizedSessionEvidence(
+              user,
+              AuthSessionEvidence(session),
+              operation,
+            )
+          : null;
       _terminationReason = null;
       return user;
     } catch (error) {
