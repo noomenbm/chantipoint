@@ -719,6 +719,42 @@ Real lifecycle behavior is host-tested using mocked Supabase auth/profile/role
 HTTP and fictional records; Android, hosted auth/RLS and native durability were
 not retested. Results are recorded in Development Status.
 
+## C3.4 durable confirmed-record recovery
+
+The isolated coordinator now accepts an optional `JournalVerifier`. Existing
+submit/replay/refresh paths retain their successful confirmation-CAS evidence
+requirement. `recoverConfirmed(context)` is a separate explicit attempt for a
+fully validated stored confirmed attendance-v2 record, including after restart,
+coordinator replacement or a failed confirmation CAS which actually committed.
+Missing verifier is `recoveryRequired`, never verification success.
+
+Recovery captures the original generation/full binding, reads and freezes the
+complete original record bytes, gates invalid/legacy/blocked/pending-migration
+records, and invokes the verifier. It checks authorization before/after awaits
+and rereads exact bytes after verification. Failed barriers or changed/missing
+records return unresolved with no snapshot or canonical lookup. Byte equality
+covers revision, phase, command key/request text, full receipt text and migration
+metadata, not just semantic IDs. The verifier validates both input and readback;
+the native operation independently authenticates and compares complete bytes.
+
+Only a successful barrier populates per-instance exact-record refresh evidence.
+The existing refresh path rereads the complete record again and performs only
+the scoped canonical read of the original receipt's session ID. Failure/absence
+of canonical state returns `confirmedNeedsRefresh` without altering the receipt;
+later explicit refresh may retry. Neither this evidence nor canonical absence
+authorizes an attendance resend, new key, cleanup or compaction. Another instance
+requires its own fresh barrier. Prepared/may-have-sent/uncertain behavior, late
+receipt-only finalization, one-attempt contexts and queue/release timing remain
+unchanged. This queue is still only within one Dart isolate.
+
+`AndroidJournalVerifier` calls `verifyRecordV1` with bounded, validated frozen
+bytes and requires exact authenticated readback from the native barrier. There
+is no default composition, timer, network call, legacy import, live-controller
+change, provenance approval or writer fencing. Migration-specific barriers and
+the isolated cleanup namespace restriction remain separate and unchanged.
+See Android Journal Storage and Development Status for actual validation and
+remaining platform/power-loss limitations.
+
 ## Native C2b implementation and activation boundary
 
 C2b implements Android Keystore AES-GCM and AtomicFile under

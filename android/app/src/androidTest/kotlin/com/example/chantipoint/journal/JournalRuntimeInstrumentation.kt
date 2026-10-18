@@ -36,6 +36,8 @@ class JournalRuntimeInstrumentation : Instrumentation() {
     private lateinit var control: MethodChannel
     private var stage = "namespace"
     private val migrationFault = AtomicReference<String?>(null)
+    private val verificationFault = AtomicReference<String?>(null)
+    private var verificationBinding: SlotBinding? = null
 
     override fun onCreate(arguments: Bundle?) {
         super.onCreate(arguments)
@@ -62,6 +64,22 @@ class JournalRuntimeInstrumentation : Instrumentation() {
                         if (consume(stage)) problem("journal_sync_failure")
                     }
                     override fun deleteSource(file: File): Boolean = if (consume("delete")) false else file.delete()
+                }, JournalVerificationIo { checkpoint ->
+                    val requested = verificationFault.get()
+                    if (requested == checkpoint && verificationFault.compareAndSet(requested, null)) {
+                        problem("journal_sync_failure")
+                    }
+                    // AtomicReference CAS uses reference identity. The channel
+                    // string need not be the interned literal: consume the exact
+                    // observed reference after checking its value.
+                    if (checkpoint == "record_readback" && requested == "change_readback" &&
+                        verificationFault.compareAndSet(requested, null)) {
+                        val binding = verificationBinding ?: error("Fixture binding unavailable")
+                        val base = File(root(), "slot_${binding.slotId}.bin")
+                        val bytes = base.readBytes()
+                        bytes[bytes.lastIndex] = (bytes.last().toInt() xor 1).toByte()
+                        FileOutputStream(base).use { it.write(bytes); it.fd.sync() }
+                    }
                 })
                 control = MethodChannel(engine.dartExecutor.binaryMessenger, "chantipoint/journal_test_control")
                 control.setMethodCallHandler { call, result ->
@@ -153,6 +171,13 @@ class JournalRuntimeInstrumentation : Instrumentation() {
         }
         val args = call.arguments as Map<*, *>
         val binding = SlotBinding.parse(args["binding"])
+        if (call.method == "verificationFault") {
+            val value = args["stage"] as String
+            check(value in setOf("record_file_sync", "record_directory_sync", "record_readback", "change_readback"))
+            verificationBinding = binding
+            verificationFault.set(value)
+            return null
+        }
         if (call.method == "sourceDescriptorCounts") return sourceDescriptorCounts(binding)
         if (call.method == "sourceDescriptorProbe") {
             val suffix = args["suffix"] as String

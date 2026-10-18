@@ -180,7 +180,7 @@ global writer/source-binding obligations. Runtime fixture controls remain solely
 in the isolated harness; the added `completed_sync` checkpoint is an injected
 pre-barrier error, not a kernel or power-loss test.
 
-## C3.1 remains host-only
+## C3.1 historical host-only boundary
 
 The isolated attendance operation core depends on `JournalStorage` but supplies
 no Android composition or new channel/native method. Existing migration-only
@@ -192,7 +192,57 @@ See [Secure Command Journal](secure-command-journal.md#c31-isolated-attendance-o
 for exact context, receipt-only finalization and serialization limits. C3.1 host
 simulations do not extend the Android/runtime validation results above. No APK
 build, emulator/native test, actual journal write or power-loss test was run for
-this slice; the live legacy controller and storage remain unchanged.
+this slice; the live legacy controller and storage remain unchanged. C3.4 below
+adds a separate generic verification barrier and isolated runtime composition.
+
+## C3.4 general exact-record verification
+
+`verifyRecordV1` accepts exactly `api_version: 1`, the five-field `binding`, and
+`expected_record: Uint8List` (at most 64 KiB). Its only successful response is
+`{status: record_verified, record: Uint8List}`. Dart validates the complete schema
+before the call and after readback, then compares all original bytes. Native
+validates bounded envelope/binding metadata, authenticates the stored container,
+and compares the complete expected plaintext before and after the fresh barrier.
+
+The existing process monitor and OS file lock enclose authentication, exact
+comparison, file descriptor synchronization, directory synchronization and a
+fresh authenticated readback. No AtomicFile recovery, sidecar normalization,
+deletion, phase transition, import or network call occurs. Even a byte-identical
+sidecar is rejected by this operation and retained; it does not select a revision.
+Missing records/keys, wrong binding, corrupt/authentication failures and changed
+records fail safely. Stable issue codes cross the channel; no private native
+exception details or record content are logged. Full request/receipt semantics
+remain Dart's authority, as in the existing native contract.
+
+This API is distinct from `verifyMigrationTargetV1` and
+`verifyCompletedMigrationV1`. It neither weakens their namespace guard nor grants
+legacy deletion permission. The optional coordinator verifier permits only
+explicit confirmed-v2 canonical refresh; it is never composed into live app
+attendance. Successful-CAS and late receipt behavior remain unchanged.
+
+The isolated Android harness injects failures at file-sync, directory-sync and
+readback boundaries and corrupts a target before authenticated readback. Controls
+and mutable fault state exist only in androidTest. These injections prove
+fail-closed control flow, not a real kernel fsync error or arbitrary power loss.
+Actual API/runtime counts are recorded in Development Status. Older AtomicFile
+implementations, permanent key invalidation, multi-process hostile mutation,
+mid-instruction process kill, reboot/power loss, OEM hardware and backup/transfer
+remain outside this validation. A fresh barrier cannot recover lost keys or data.
+
+The first C3.4 runtime retry reported 54 passes and one altered-readback fixture
+failure. The fixture attempted `AtomicReference.compareAndSet` using a string
+literal, while the channel supplied a distinct string object; reference identity
+prevented the tamper action from firing. The androidTest-only control now checks
+the value and consumes the exact observed reference. The Dart runtime assertion
+also requires the encrypted-artifact fingerprint to change during tampering,
+then requires authentication failure and preservation of the altered evidence.
+Production verification behavior and assertions were not weakened. Final rerun
+on API 37 x86_64, 16 KiB pages passed **fresh 55/55 and restart 11/11**, both
+`INSTRUMENTATION_CODE: -1`. Only the isolated app was force-stopped between
+phases, retaining its data/key; the emulator was stopped afterward. Host tests,
+builds and runtime phases were sequential. These are actual runtime results,
+separate from the 1064 passing host tests and successful offline APK builds.
+See Development Status for resource measurements and validation history.
 
 ## Slots, keys and AAD
 
@@ -419,7 +469,9 @@ builds, a 1 GiB JVM heap, 512 MiB metaspace, 128 MiB code cache and in-process K
 Use the existing emulator with command-line RAM/core limits, no saved snapshots
 or data wipe. Verify effective RAM: this image raises a requested 1.5 GiB to
 4 GiB. Keep host testing, builds and emulator execution sequential to limit RAM usage.
-Stop if C: free space falls below 5 GiB; never clean unrelated caches or data.
+For the C3.4 runtime retry, the developer revised the C: stop threshold to
+3 GiB (previously 5 GiB). Monitor free space throughout startup, installation and
+both phases; never clean unrelated caches or data.
 
 The fresh/restart phases exercise real MethodChannel messages, Keystore, independently
 encrypted identical copies, ambiguous/orphan artifacts, actual unfinished

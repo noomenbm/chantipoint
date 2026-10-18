@@ -14,6 +14,7 @@ import 'package:flutter/widgets.dart';
 import '../support/journal_fixtures.dart';
 import 'legacy_migration_runtime.dart';
 import 'legacy_coordinator_runtime.dart';
+import 'confirmed_recovery_runtime.dart';
 
 const _control = MethodChannel('chantipoint/journal_test_control');
 const _native = MethodChannel(AndroidJournalStorage.channelName);
@@ -277,6 +278,7 @@ Future<void> main() async {
     );
     await migrationFreshChecks(run);
     await coordinatorFreshChecks(run);
+    await confirmedRecoveryFreshChecks(run);
   } else if (phase == 'restart') {
     await run(
       'Keystore and original prepared command survive process restart',
@@ -299,6 +301,7 @@ Future<void> main() async {
     });
     await migrationRestartChecks(run);
     await coordinatorRestartChecks(run);
+    await confirmedRecoveryRestartChecks(run);
     await run('missing key never regenerates or deletes ciphertext', () async {
       final binding = _binding('persist');
       await _control.invokeMethod<void>('loseKey');

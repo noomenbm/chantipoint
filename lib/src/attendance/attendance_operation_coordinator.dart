@@ -7,6 +7,7 @@ import 'journal/journal_command.dart';
 import 'journal/journal_json.dart';
 import 'journal/journal_record.dart';
 import 'journal/journal_recovery.dart';
+import 'journal/journal_verifier.dart';
 
 enum AttendanceOperationOutcome {
   confirmed,
@@ -75,19 +76,21 @@ class AttendanceOperationCoordinator {
     required this.storage,
     required this.transport,
     required this.canonical,
+    this.verifier,
   });
   final JournalStorage storage;
   final AttendanceOperationTransport transport;
   final AttendanceCanonicalReader canonical;
+  final JournalVerifier? verifier;
   static final _tails = <String, Future<void>>{};
   // Consumption is separate from auth currency, which remains observable by
   // results. Weak keys avoid retaining completed contexts indefinitely.
   static final _usedContexts = Expando<bool>('attendance-attempt');
 
-  // Volatile, per-instance evidence of successful confirmation CAS in this core.
-  // Always compare the COMPLETE reread record. Not a native barrier or restart
-  // proof; failed transitions/mismatching refresh reads invalidate it. Reads
-  // alone can never populate this map; canonical failures retain it for retry.
+  // Volatile, per-instance evidence from successful confirmation CAS OR explicit
+  // exact-record native recovery. Always compare the COMPLETE reread record.
+  // Never restart proof by itself: failed transitions/mismatching refresh reads
+  // invalidate it. Reads alone never populate it; canonical failures retain it.
   final _confirmed = <String, List<int>>{};
 
   Future<AttendanceOperationResult> submit(
@@ -174,6 +177,69 @@ class AttendanceOperationCoordinator {
     }
     return _refresh(owner, read.record!);
   });
+
+  /// Explicit restart/uncertain-confirmation-write recovery. Never dispatches.
+  /// A readable receipt alone is not durability evidence. All bytes are frozen
+  /// and rechecked across the barrier; only then may canonical refresh proceed.
+  Future<AttendanceOperationResult> recoverConfirmed(
+    AttendanceOperationContext context,
+  ) => _run(context, (owner) async {
+    owner.check();
+    final stored = await _readRecoveryBytes(owner);
+    owner.check();
+    final read = stored.issue != null
+        ? JournalReadResult.blocked(stored.issue!)
+        : stored.bytes == null
+        ? const JournalReadResult.absent()
+        : JournalCodec.decode(stored.bytes!, owner.identity.binding);
+    final gate = _gate(owner, read);
+    if (gate != null) return gate;
+    final record = read.record;
+    if (record?.phase != JournalPhase.confirmed || verifier == null) {
+      return _unresolved(owner, AttendanceOperationProblem.recoveryRequired);
+    }
+    _confirmed.remove(owner.key);
+    final expected = List<int>.unmodifiable(stored.bytes!);
+    JournalIssue? issue;
+    try {
+      owner.check();
+      issue = await verifier!.verify(owner.identity.binding, expected);
+    } catch (_) {
+      issue = JournalIssue.nativeFailure;
+    }
+    owner.check();
+    if (issue != null) {
+      return _unresolved(
+        owner,
+        AttendanceOperationProblem.persistenceUncertain,
+        journalIssue: issue,
+      );
+    }
+    final after = await _readRecoveryBytes(owner);
+    owner.check();
+    if (after.issue != null ||
+        after.bytes == null ||
+        !_bytesEqual(expected, after.bytes!)) {
+      return _unresolved(
+        owner,
+        AttendanceOperationProblem.journalUnavailable,
+        journalIssue: after.issue ?? JournalIssue.revisionConflict,
+      );
+    }
+    // Verification grants refresh only, with the same per-instance full-record
+    // proof discipline as successful CAS. Canonical failure retains the receipt.
+    _confirmed[owner.key] = JournalCodec.encode(record!);
+    return _refresh(owner, record);
+  });
+
+  Future<JournalStorageRead> _readRecoveryBytes(_Owner owner) async {
+    owner.check();
+    try {
+      return await storage.read(owner.identity.binding);
+    } finally {
+      owner.check();
+    }
+  }
 
   Future<AttendanceOperationResult> _dispatch(
     _Owner owner,

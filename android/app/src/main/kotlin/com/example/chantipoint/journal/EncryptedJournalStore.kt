@@ -21,6 +21,11 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
+/** Injection is internal; fault controls are supplied only by androidTest. */
+internal fun interface JournalVerificationIo {
+    fun checkpoint(stage: String)
+}
+
 /** Isolated storage. Nothing instantiates it until an explicit channel call. */
 internal class EncryptedJournalStore(context: Context) {
     private val context = context.applicationContext
@@ -50,6 +55,30 @@ internal class EncryptedJournalStore(context: Context) {
 
     fun inspectRecovery(binding: SlotBinding): RecoveryInspection = locked { root, files ->
         inspectRecovery(root, binding, files, existingKey(files.isNotEmpty()))
+    }
+
+    /** General verification-only barrier, separate from all migration APIs.
+     * Dart validates the COMPLETE schema before calling. Native independently
+     * checks envelope/binding and authenticates and compares ALL original bytes.
+     * Never invokes AtomicFile.openRead or normalizes/deletes sidecars.
+     */
+    fun verifyRecord(binding: SlotBinding, expected: ByteArray,
+                     io: JournalVerificationIo = JournalVerificationIo { }): ByteArray {
+        JournalHeader.inspect(expected, binding)
+        return locked { root, files ->
+            val key = existingKey(files.isNotEmpty())
+            val actual = readStored(root, binding, files, key) ?: problem("journal_command_conflict")
+            if (!MessageDigest.isEqual(actual, expected)) problem("journal_revision_conflict")
+            io.checkpoint("record_file_sync")
+            try { FileInputStream(File(root, filename(binding))).use { it.fd.sync() } }
+            catch (_: Exception) { problem("journal_sync_failure") }
+            io.checkpoint("record_directory_sync")
+            syncDirectory(root)
+            io.checkpoint("record_readback")
+            val verified = readStored(root, binding, inspectFiles(root), key) ?: problem("journal_storage_failure")
+            if (!MessageDigest.isEqual(verified, expected)) problem("journal_revision_conflict")
+            verified
+        }
     }
 
     /** Fresh barrier and optional validation-only cleanup, all under the SAME locks. */

@@ -14,6 +14,31 @@ Reuse `session_events.event_type`, `reason_code`, `notes`, `source`, `work_sessi
 
 Retain `checkout_source`. Retain `checkout_reason_code` in this migration too, despite its approved removal from the target: actual historical values and closure-event consistency must be audited before a later cleanup migration.
 
+## C3.4 isolated confirmed-record recovery
+
+`AttendanceOperationCoordinator.recoverConfirmed` is an explicit, opt-in path
+for stored confirmed v2 records after restart/replacement or a reported
+confirmation CAS failure that may have committed. An injected `JournalVerifier`
+must freshly synchronize and authenticate the exact complete record. The Android
+`verifyRecordV1` barrier uses the established native process/file locks, file and
+directory synchronization, and complete authenticated readback. Dart validates
+the full schema and rereads exact bytes across the barrier, checking the captured
+authorization generation and five-field binding throughout.
+
+Only canonical session refresh is authorized by this recovery. Receipt and
+immutable command bytes remain unchanged; no attendance RPC, replay, cleanup,
+compaction or migration occurs. Missing verifiers, changed/unverifiable records
+and ambiguous sidecars fail closed. Canonical failures retain the confirmed
+receipt for later explicit refresh. Existing successful-CAS and late-receipt
+paths remain unchanged. Prepared and uncertain command recovery is unchanged.
+
+This composition remains outside main/screens and the legacy live controller.
+Production provenance, durable ownership/fencing, backup review and approved
+backend deployment/cutover remain prerequisites. Synchronization/readback is not
+a guarantee against arbitrary power loss, device loss or storage rollback. See
+[Secure Command Journal](secure-command-journal.md#c34-durable-confirmed-record-recovery)
+and [Android Journal Storage](android-journal-storage.md#c34-general-exact-record-verification).
+
 ## Goals
 
 - Support a French-language, single-company attendance and worksite-presence verification workflow.

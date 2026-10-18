@@ -1,6 +1,76 @@
 # ChantiPoint Development Status
 
-Current slice: **M2.3c.C3.3, combined auth ownership and credential authority**,
+Current slice: **M2.3c.C3.4, durable confirmed-record recovery**, based on clean
+**`99d6ea73100acdeab333ddc04739d047a460c107`** on `feature/manual-attendance`.
+
+The opt-in `verifyRecordV1` native barrier authenticates and compares the entire
+expected record, synchronizes its file and directory under the existing native
+locks, and authenticates/compares complete readback. The separate injected
+`AndroidJournalVerifier` validates full Dart schema and exact returned bytes.
+Migration barriers and their isolated deletion guard are unchanged.
+
+`recoverConfirmed` is an explicit coordinator attempt for a stored confirmed v2
+receipt after restart/replacement or a reported confirmation CAS failure that
+actually committed. It checks captured generation/full binding and complete
+record bytes around verification, then permits only canonical session refresh.
+Canonical failure retains the receipt for later explicit refresh. Missing
+verifier, failed barrier, changed/unverifiable record, legacy command, pending
+migration and blocked states never grant recovery. Existing successful-CAS,
+late-receipt, one-attempt ownership and prepared/uncertain behavior are retained.
+
+C3.4 validation results (2026-10-18):
+
+- Focused recovery/channel/existing coordinator tests: **136/136 passed**.
+- Final `flutter analyze --no-pub`: **passed, no issues**.
+- Final `flutter test --no-pub --concurrency=1`: **1064/1064 passed**, zero
+  failures/skips (1004 retained plus 60 new), rerun after the runtime-fixture fix
+  in approximately 1 minute 10 seconds.
+- Isolated app and instrumentation APKs: **offline compilation passed** using
+  the documented one-worker, 1 GiB Gradle configuration. Final rebuild: 1m 10s.
+  Existing Gradle/Kotlin deprecation warnings remain; no dependency upgrade.
+- **Actual Android C3.4 instrumentation passed:** API 37 x86_64, 16 KiB pages,
+  Pixel_9; **fresh 55/55 and restart 11/11**, zero failures, both reporting
+  `INSTRUMENTATION_CODE: -1`. These retain the earlier 44 fresh/9 restart checks
+  and add 11 fresh/2 restart checks. Only the isolated validation app was
+  force-stopped between phases; its data and Keystore key were retained.
+- Initial runtime retry: **54 passed, 1 failed**, in the altered-readback fixture.
+  An androidTest `AtomicReference.compareAndSet` used a literal string reference,
+  so channel-decoded text did not trigger tampering. The fix consumes the exact
+  observed reference after value comparison. The Dart assertion additionally
+  proves ciphertext fingerprint change before requiring authentication failure
+  and evidence preservation. Both final phases passed after rebuilding. No
+  production verification behavior or test expectation was weakened.
+- Resource retry authorized after the developer freed RAM/disk and changed the
+  C: stop threshold from 5 GiB to **3 GiB**. Earlier startup attempts under the
+  proactive 5.5 GiB threshold had been stopped without running instrumentation.
+  This retry began with C: **9.63 GiB**, E: **23.68 GiB**, available RAM
+  **2.66 GiB**. The lowest sampled installation/phase free space was **4.92 GiB**
+  in the initial run; final successful installation/fresh/restart checks stayed
+  at or above **8.34 GiB**. The emulator still raises requested 1536 MiB RAM to
+  **4096 MiB**. Builds, host suites and emulator work were sequential. No
+  downloads, unrelated cache/data deletion, pagefile changes or Docker startup.
+- Final shutdown confirmed emulator/Gradle/Docker stopped: C: **10.89 GiB**,
+  E: **23.68 GiB**, available RAM **2.12 GiB**.
+- `git diff --check`: passed. Branch/HEAD retained; no staging or commits.
+
+The focused native runtime validation blocker is resolved. New checks cover
+exact bytes, missing and changed targets, authenticated corruption/wrong binding, ambiguous sidecar
+preservation, synchronization-boundary failure injection, altered readback,
+force-stop persistence and native-verifier-backed coordinator refresh without
+dispatch. Injected checkpoint failures do not test real kernel fsync failures.
+Native duplicate-sidecar cleanup fault injection, older Android/AtomicFile,
+permanent key invalidation, multi-process mutation, power interruption,
+OEM hardware and backup/transfer remain untested here.
+
+This remains isolated from main/screens/live attendance. No hosted requests,
+SQL deployment, v2 activation, actual legacy migration, GPS/UI, provenance approval
+or durable global fencing is introduced.
+Production composition, backup policy, writer/source ownership, receipt
+consumption/compaction and approved backend cutover remain gated. File/directory
+synchronization and authenticated readback do not establish arbitrary power-loss,
+device-loss or storage-rollback recovery.
+
+Previous slice: **M2.3c.C3.3, combined auth ownership and credential authority**,
 based on clean **`2ae472a`** on `feature/manual-attendance`.
 
 `AttendanceAuthOwner` now observes the real controller/repository lifecycle,
