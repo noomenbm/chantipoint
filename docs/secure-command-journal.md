@@ -199,7 +199,31 @@ C2b implements Android Keystore AES-GCM and AtomicFile under
 containers, shared locking, descriptor/directory synchronization and independent
 readback. Missing/invalidated keys and authentication failures preserve
 ciphertext and block; there is no automatic reset or delete-all API. These are
-implemented safeguards, not a claim of verified Android runtime behavior.
+implemented safeguards; see Android Journal Storage for actual runtime coverage
+and the remaining durability/platform validation limits.
+
+C2b.1 adds limited recovery without changing format 2 or its state machine.
+Main plus exactly one .new/.bak may normalize only after both authenticated
+plaintexts pass complete Dart validation and are byte-identical. A native content
+snapshot is rechecked under the same process/OS locks; both copies are
+reauthenticated and compared with the exact validated bytes before mutation.
+Main file/name synchronization precedes checked duplicate deletion; directory
+sync and full readback follow it. Original key/payload, phase, receipt and revision
+are preserved, including blocked records. No attendance is confirmed by recovery.
+Different records, sidecar-only states, three artifacts and invalid/unverifiable
+candidates remain preserved and blocked. There is no highest-revision selection,
+automatic promotion, plaintext fallback or ambiguous-command deletion.
+
+C2b.1 continuation validation passed all 583 serial Flutter tests and analysis;
+the isolated app/test APKs built offline. On Android 17/API 37 x86_64 with 16 KiB
+pages, fresh 15/15 and restart 4/4 checks passed. Restart compares the complete
+expected original record, including binding, idempotency key, frozen command,
+phase and revision, after force-stopping only the isolated app without clearing
+its data/key. A fixture-only canonical-parent check was fixed; production journal
+policy was preserved. Native cleanup/sync failure injection, older AtomicFile
+writers, multi-process and mid-write-kill tests, reboot/power loss, permanent key
+invalidation, OEM/physical-device and backup/transfer validation remain pending.
+These focused results do not establish power-loss durability or production readiness.
 
 Backup/device-transfer exclusions must cover new storage and legacy originals.
 Keys remain independent of logout/session tokens; unresolved records survive
@@ -216,8 +240,10 @@ Standalone note saves must remain outside the attendance outbox.
 
 C2a does not activate storage, migrate actual files, dispatch v2 RPCs, acquire
 location, modify authentication, or approve hosted deployment/cutover. Native
-encryption, atomicity, process-death and backup tests require separately approved
-Android validation; host simulations are not evidence that those checks passed.
+encryption, atomicity, process-death and backup checks need actual Android evidence;
+host simulations are not evidence that those checks passed. C2b.1 authorizes a
+separate fictional runtime harness; this does not activate the live controller
+or authorize C2c migration, production use or hosted cutover.
 
 See [Android Journal Storage](android-journal-storage.md) for the implemented C2b
 channel, binary container, encryption/AAD, locks, failure codes and conservative

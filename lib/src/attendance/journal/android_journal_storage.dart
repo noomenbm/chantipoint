@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'command_journal.dart';
 import 'journal_command.dart';
 import 'journal_json.dart';
+import 'journal_recovery.dart';
 
 /// Opt-in only. Main and the legacy controller do not instantiate this adapter.
 /// The channel carries plaintext in process; only native encrypted files persist.
@@ -53,6 +54,9 @@ class AndroidJournalStorage implements JournalStorage {
       if (response['status'] == 'absent' && response.length == 1) {
         return const JournalStorageRead.absent();
       }
+      if (response['status'] == 'recovery_required' && response.length == 1) {
+        return await _recover(binding);
+      }
       if (response['status'] != 'stored' ||
           response.length != 2 ||
           response['record'] is! Uint8List) {
@@ -63,6 +67,8 @@ class AndroidJournalStorage implements JournalStorage {
       return checked.issue == null
           ? JournalStorageRead.bytes(bytes)
           : JournalStorageRead.failure(checked.issue!);
+    } on JournalException catch (error) {
+      return JournalStorageRead.failure(error.issue);
     } on MissingPluginException {
       return const JournalStorageRead.failure(JournalIssue.unsupportedPlatform);
     } on PlatformException catch (error) {
@@ -72,6 +78,39 @@ class AndroidJournalStorage implements JournalStorage {
     } catch (_) {
       return const JournalStorageRead.failure(JournalIssue.nativeFailure);
     }
+  }
+
+  Future<JournalStorageRead> _recover(JournalBinding binding) async {
+    final inspection = await _channel.invokeMethod<Object?>(
+      'inspectRecoveryV1',
+      {'api_version': apiVersion, 'binding': binding.toJson()},
+    );
+    final plan = JournalRecoveryPlan.inspect(inspection, binding);
+    if (!plan.needsNormalization) return JournalStorageRead.bytes(plan.record);
+    final response = await _channel.invokeMethod<Object?>(
+      'normalizeRecoveryV1',
+      {
+        'api_version': apiVersion,
+        'binding': binding.toJson(),
+        'snapshot': plan.snapshot,
+        'validated_record': Uint8List.fromList(plan.record),
+      },
+    );
+    if (response is! Map ||
+        response.length != 2 ||
+        response['status'] != 'stored' ||
+        response['record'] is! Uint8List) {
+      return const JournalStorageRead.failure(JournalIssue.nativeFailure);
+    }
+    final bytes = response['record'] as Uint8List;
+    final checked = JournalCodec.decode(bytes, binding);
+    if (checked.issue != null) {
+      return JournalStorageRead.failure(checked.issue!);
+    }
+    if (!JournalRecoveryPlan.sameRecordBytes(plan.record, bytes)) {
+      return const JournalStorageRead.failure(JournalIssue.nativeFailure);
+    }
+    return JournalStorageRead.bytes(bytes);
   }
 
   @override

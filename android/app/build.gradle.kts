@@ -4,6 +4,9 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// Opt-in, fictional journal runtime harness; normal application builds are unchanged.
+val journalValidation = providers.gradleProperty("journalValidation").orNull == "true"
+
 android {
     namespace = "com.example.chantipoint"
     compileSdk = flutter.compileSdkVersion
@@ -17,6 +20,10 @@ android {
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.example.chantipoint"
+        if (journalValidation) {
+            applicationIdSuffix = ".journalvalidation"
+            testInstrumentationRunner = "com.example.chantipoint.journal.JournalRuntimeInstrumentation"
+        }
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion

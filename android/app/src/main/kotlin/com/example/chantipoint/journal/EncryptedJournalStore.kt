@@ -11,7 +11,7 @@ import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.File
-import java.io.FileOutputStream
+import java.io.FileInputStream
 import java.io.RandomAccessFile
 import java.security.KeyStore
 import java.security.MessageDigest
@@ -48,6 +48,47 @@ internal class EncryptedJournalStore(context: Context) {
         readStored(root, binding, files, key)
     }
 
+    fun inspectRecovery(binding: SlotBinding): RecoveryInspection = locked { root, files ->
+        inspectRecovery(root, binding, files, existingKey(files.isNotEmpty()))
+    }
+
+    fun normalizeRecovery(binding: SlotBinding, snapshot: String, validatedRecord: ByteArray): ByteArray =
+        locked { root, files ->
+            val key = existingKey(files.isNotEmpty())
+            // Reopen and authenticate every candidate under the same locks as cleanup.
+            val inspection = inspectRecovery(root, binding, files, key)
+            if (inspection.snapshot != snapshot) problem("journal_revision_conflict")
+            val candidates = inspection.candidates
+            if (candidates.size != 2 || candidates.none { it.kind == "main" }) problem("journal_unreadable")
+            JournalHeader.inspect(validatedRecord, binding)
+            if (candidates.any { !MessageDigest.isEqual(it.record, validatedRecord) }) problem("journal_unreadable")
+            val main = File(root, filename(binding))
+            // Persist the retained bytes AND name before removing the only redundant copy.
+            try { RandomAccessFile(main, "rw").use { it.fd.sync() } }
+            catch (_: Exception) { problem("journal_sync_failure") }
+            syncDirectory(root)
+            val sidecar = candidates.single { it.kind != "main" }
+            val suffix = if (sidecar.kind == "new") ".new" else ".bak"
+            if (!File(root, filename(binding) + suffix).delete()) problem("journal_storage_failure")
+            syncDirectory(root)
+            val readback = readStored(root, binding, inspectFiles(root), key) ?: problem("journal_storage_failure")
+            if (!MessageDigest.isEqual(readback, validatedRecord)) problem("journal_storage_failure")
+            readback
+        }
+
+    private fun inspectRecovery(root: File, binding: SlotBinding, files: List<File>, key: SecretKey?): RecoveryInspection {
+        val name = filename(binding)
+        val candidates = listOf("main" to name, "new" to "$name.new", "bak" to "$name.bak").mapNotNull { (kind, path) ->
+            val file = files.singleOrNull { it.name == path } ?: return@mapNotNull null
+            if (key == null) problem("journal_missing_key")
+            val container = readContainer(file)
+            val record = decrypt(container, binding, key)
+            JournalHeader.inspect(record, binding)
+            RecoveryCandidate(kind, container, record)
+        }
+        return RecoveryInspection(packageName, binding, candidates)
+    }
+
     fun compareAndSwap(binding: SlotBinding, expectedRevision: Long, expectedKey: String?, replacement: ByteArray): Long =
         locked { root, files ->
             val next = JournalHeader.inspect(replacement, binding)
@@ -68,17 +109,15 @@ internal class EncryptedJournalStore(context: Context) {
             val writeKey = key ?: createKey(files)
             val encrypted = encrypt(replacement, binding, writeKey)
             val atomic = AtomicFile(File(root, name))
-            var stream: FileOutputStream? = null
-            var finished = false
-            try {
-                stream = atomic.startWrite()
+            // use closes again even if finishWrite swallowed a close failure.
+            // It preserves the original exception if closing also fails.
+            atomic.startWrite().use { stream ->
                 stream.write(encrypted)
                 stream.flush()
                 try { stream.fd.sync() } catch (_: Exception) { problem("journal_sync_failure") }
                 // finishWrite can LOG failed sync/rename without throwing. It is
                 // not our success boundary. Do not roll back after this call.
                 atomic.finishWrite(stream)
-                finished = true
                 syncDirectory(root)
                 val after = inspectFiles(root)
                 val readback = readStored(root, binding, after, writeKey) ?: problem("journal_storage_failure")
@@ -87,10 +126,6 @@ internal class EncryptedJournalStore(context: Context) {
                     problem("journal_storage_failure")
                 }
                 next.revision
-            } finally {
-                // Preserve interrupted ciphertext and AtomicFile sidecars for
-                // explicit recovery. failWrite/delete would remove evidence.
-                if (!finished) try { stream?.close() } catch (_: Exception) { /* retain original failure */ }
             }
         }
 
@@ -146,23 +181,24 @@ internal class EncryptedJournalStore(context: Context) {
         val name = filename(binding)
         // AtomicFile.openRead may delete .new or overwrite base with .bak. Do
         // not allow implicit deletion/promotion of ambiguous recovery evidence.
-        if (files.any { it.name == "$name.new" || it.name == "$name.bak" }) problem("journal_unreadable")
+        if (files.any { it.name == "$name.new" || it.name == "$name.bak" }) problem("journal_recovery_required")
         if (files.none { it.name == name }) return null
         if (key == null) problem("journal_missing_key")
-        val encrypted = AtomicFile(File(root, name)).openRead().use { input ->
-            val output = ByteArrayOutputStream()
-            val buffer = ByteArray(4096)
-            while (true) {
-                val read = input.read(buffer)
-                if (read < 0) break
-                if (output.size() + read > CONTAINER_LIMIT) problem("journal_corrupt")
-                output.write(buffer, 0, read)
-            }
-            output.toByteArray()
-        }
-        val plaintext = decrypt(encrypted, binding, key)
+        val plaintext = decrypt(readContainer(File(root, name)), binding, key)
         JournalHeader.inspect(plaintext, binding)
         return plaintext
+    }
+
+    private fun readContainer(file: File): ByteArray = FileInputStream(file).use { input ->
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(4096)
+        while (true) {
+            val read = input.read(buffer)
+            if (read < 0) break
+            if (output.size() + read > CONTAINER_LIMIT) problem("journal_corrupt")
+            output.write(buffer, 0, read)
+        }
+        output.toByteArray()
     }
 
     private fun keyStore(): KeyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }

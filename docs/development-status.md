@@ -1,6 +1,41 @@
 # ChantiPoint Development Status
 
-Current slice: **M2.3c.C2b, isolated Android encrypted journal backend**. C1 v2
+Current slice: **M2.3c.C2b.1, limited duplicate-artifact recovery**. C2b is
+committed at `69095c7`. Recovery is isolated from the live controller: only main
+plus one fully validated, byte-identical .new/.bak can normalize. Ambiguous,
+orphan, invalid and three-artifact histories remain preserved and blocked.
+Snapshot rechecks, reauthentication, retained-main synchronization, checked
+cleanup and full readback run under native locks; original intent/phase/revision
+and blocked states remain unchanged. A separate fictional Android runtime
+harness is provided. See [Android Journal Storage](android-journal-storage.md).
+
+C2b.1 validation continuation: analysis passed and the full serial Flutter suite
+passed **583/583**, zero failures/skips, superseding the earlier resource-stopped
+570-test run. The isolated app and test APKs built offline against API 36 with
+one worker, a 1 GiB JVM heap and existing caches. Actual Android 17/API 37 x86_64
+runtime results: **fresh 15/15; restart 4/4**, both zero failures. The existing
+API-37.2 Pixel_9 image uses 16 KiB pages and overrides a 1.5 GiB RAM request to
+4 GiB; two cores/headless execution and sequential host/build/emulator work were
+used. An initial low-memory process kill was not a journal result. A fixture-only
+raw/canonical-parent path check was diagnosed and corrected; production recovery
+logic and policy were unchanged. Restart checks now compare the entire expected
+original record, including binding, idempotency key, complete command, phase and
+revision. Only the isolated app was force-stopped between phases, preserving
+data/key; the final missing-key test intentionally removes only its fictional key.
+
+C: started at 13.37 GiB free and remained above the 5 GiB gate; E: started at
+23.68 GiB. The task emulator was stopped after validation. No downloads, cleanup,
+pagefile changes, hosted operations, live activation or C2c migration occurred.
+Final measurements: **11.63 GiB C: / 23.68 GiB E:** free and **2.99 GiB available
+RAM**; emulator/Gradle/Docker were stopped.
+Actual native cleanup/synchronization failure injection, older AtomicFile writers,
+multi-process contention, mid-write process kill, reboot/power loss, permanent
+key invalidation, physical-device/OEM and backup/device-transfer checks remain
+pending. Host mocks and .bak fixtures on API 37 do not establish those guarantees
+or production readiness. Details and reproducible commands are in
+[Android Journal Storage](android-journal-storage.md).
+
+Earlier C2b/C2a baseline: C1 v2
 support is committed at `6e38bbc`; C2a is committed at `c5505cd`. C2a adds format-2 serialization,
 identity binding, revision/key compare-and-swap transitions, confirmation
 retention, blocked recovery, and legacy import preparation. See
@@ -9,8 +44,9 @@ recovery contract.
 
 C2b adds the opt-in Dart MethodChannel adapter and native Keystore AES-256-GCM /
 AtomicFile backend. Native CAS, locking, synchronization and readback are
-implemented; encryption/durability/process-death/backup behavior still requires
-Android testing. See [Android Journal Storage](android-journal-storage.md).
+implemented; Android runtime validation was pending at that baseline. Focused
+C2b.1 runtime results and remaining durability/platform checks are recorded above.
+See [Android Journal Storage](android-journal-storage.md).
 
 C2b host validation: analysis passed; all **538 Flutter tests passed** (469
 existing and 69 new), with zero failures/skips. A cached, 256 MiB Kotlin compile
@@ -22,8 +58,8 @@ C2a local validation: `flutter analyze --no-pub` passed; the full
 and 242 new), with zero failures or skips. `git diff --check` passed.
 
 The live controller still uses the unchanged legacy version-1 file store.
-Actual legacy migration (C2c), coordinator activation (C3), Android runtime
-validation, and hosted v2 deployment/cutover remain pending. Host simulation
+Actual legacy migration (C2c), coordinator activation (C3), remaining Android
+runtime validation, and hosted v2 deployment/cutover remain pending. Host simulation
 does not validate Android disk durability, encryption or process-death recovery.
 
 ## Earlier Implementation and Validation Records

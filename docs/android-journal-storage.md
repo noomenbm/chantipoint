@@ -1,4 +1,4 @@
-# Android Encrypted Journal Storage — C2b
+# Android Encrypted Journal Storage — C2b / C2b.1
 
 C2b implements the Android backend for the [format-2 journal](secure-command-journal.md).
 The Dart schema/state machine and live version-1 attendance flow are unchanged.
@@ -20,6 +20,14 @@ listed below are required, including NULL. Unexpected fields fail explicitly.
 | --- | --- | --- |
 | `read` | `api_version: 1`, `binding: <five format-2 identity fields>` | `{status: absent}` or `{status: stored, record: Uint8List}` |
 | `compareAndSwap` | `api_version: 1`, `binding`, `expected_revision: int`, `expected_key: String or NULL`, `replacement: Uint8List` | `{status: written, revision: int}` |
+| `inspectRecoveryV1` | `api_version: 1`, `binding` | `{recovery_version: 1, snapshot: <SHA-256 hex>, candidates: [{kind: main/new/bak, record: Uint8List}]}` |
+| `normalizeRecoveryV1` | `api_version: 1`, `binding`, `snapshot`, `validated_record: Uint8List` | `{status: stored, record: Uint8List}` |
+
+When sidecars exist, `read` returns `{status: recovery_required}`. The adapter
+performs one inspection, complete Dart validation and, only if permitted, one
+normalization. It does not loop on conflicts or errors. Direct CAS still blocks
+on sidecars; it never performs recovery implicitly. A concurrent reader that has
+already normalized may leave a valid main-only inspection, which needs no cleanup.
 
 There is no arbitrary path, key export, general encryption, reset, delete-all,
 migration or network method. Channel bytes are plaintext inside the application
@@ -123,13 +131,49 @@ is not public in the API-36 SDK. App-data/no-backup parent metadata is also
 synchronized, including after failed initialization. Unsupported/failed sync
 returns `journal_sync_failure`, never a weaker-success fallback.
 
-**Conservative interruption policy:** existing `.new` or `.bak` for the target
-slot blocks with `journal_unreadable`, preserving all copies. AtomicFile's
-`openRead` can delete `.new` or restore `.bak`, so it is not called on ambiguous
-artifacts. Failed writes close descriptors/release locks but do not call
-`failWrite` to erase partial ciphertext. This may block despite a valid older
-base file. A tested, explicitly approved artifact-recovery procedure is still
-required before C3/production use; no recovery/deletion API is supplied here.
+## C2b.1 approved limited recovery
+
+Inspection uses bounded FileInputStream reads, never AtomicFile.openRead,
+startWrite or another mutating AtomicFile recovery method. Under the existing
+process/OS locks, native code authenticates every candidate using the existing
+key and expected AAD, and validates routing metadata. Invalid candidates fail
+without deleting anything. Only fixed main/new/bak identifiers cross the channel.
+
+| Artifacts | Decision |
+| --- | --- |
+| Valid main only | Read normally. |
+| Main + .new, or main + .bak | Normalize only if BOTH complete records pass JournalCodec and have byte-identical plaintext. |
+| Different bytes, revisions, phases, commands, payloads or receipts | Preserve every artifact and block. |
+| Only .new or only .bak | Preserve and block; no promotion. |
+| All three artifacts | Preserve and block, including identical triples; outside the approved pair-only procedure. |
+| Invalid/truncated ciphertext, tag failure, absent/invalidated key, unsupported container/schema or incomplete validation | Preserve and block. No fallback/reset. |
+
+Dart owns policy and validates the complete schema, binding, frozen request,
+phase/flag relationships and receipt before requesting normalization. Header
+equality alone is insufficient. Ciphertexts may differ because their nonces differ;
+the decrypted bytes must be identical, including original request/receipt strings.
+No revision or filesystem timestamp is used to choose a winner. A blocked journal
+record remains blocked after removing an identical duplicate.
+
+The snapshot hashes framed package/slot context and, in fixed main/new/bak order,
+each artifact's presence, length and complete encrypted bytes. It is a content
+snapshot, not proof of freshness or commit. Native normalization reacquires both
+locks, rereads/reauthenticates all candidates, checks the snapshot and pair-only
+shape, and compares both plaintexts against the exact Dart-validated bytes.
+Stale/changed snapshots block; the adapter never retries automatically.
+
+Before deletion, native code synchronizes the retained main file and journal
+directory. It then checks deletion of the sole redundant sidecar, synchronizes
+the directory again, reopens/authenticates main and compares every plaintext byte.
+This keeps main durable before cleanup: interruption can leave the identical pair
+or main alone, with the same command, phase, receipt and revision. A reported
+cleanup/sync error is never treated as success, even if the duplicate is gone.
+Directory synchronization failure remains an explicit failure on unsupported
+filesystems. Recovery neither confirms attendance nor compacts a command.
+
+Writes now use unconditional scoped stream closure, including after finishWrite
+swallows a close error. Failed writes still do not call failWrite or delete to
+erase evidence. Keystore initialization, CAS and encryption/AAD are unchanged.
 
 A reported failure may follow a committed replacement. Reread before deciding
 the next action; do not infer rollback or generate another key. OS synchronization
@@ -199,10 +243,124 @@ API-symbol failure was corrected without changing Gradle settings. Initial Dart
 analysis style findings were also corrected. `git diff --check` and added-file
 whitespace checks passed. C: remained above 5 GiB (9.66 GiB before, 9.85 GiB after).
 
-Native encryption/tag failure, invalidation/key loss, multi-process locks, atomic
-interruption recovery, descriptor/directory sync, process death, Force stop,
-reboot and cloud/device-transfer behavior remain **UNVERIFIED on Android**.
-Do not activate based only on host mocks/static inspection/compilation.
+### Isolated Android runtime harness
+
+`test/device/journal_runtime_probe.dart` is a non-UI Dart entrypoint driven by
+framework `JournalRuntimeInstrumentation` under androidTest. No AndroidX Test or
+JUnit dependency is required. Gradle property `journalValidation=true` selects
+application ID `com.example.chantipoint.journalvalidation` and the custom runner.
+The runner refuses another application ID. Its fixture channel exists only in
+the test APK; production JournalChannel has no fixture/reset/key-deletion API.
+Fresh runs clear only this isolated fictional fixture directory/key. Restart runs
+retain them. No Supabase initialization, attendance RPC, GPS or live controller
+is executed. The normal application target and application ID are unchanged.
+
+Focused debug/test APKs use the existing SDK and Gradle, one worker, no parallel
+builds, a 1 GiB JVM heap, 512 MiB metaspace, 128 MiB code cache and in-process Kotlin.
+Use the existing emulator with command-line RAM/core limits, no saved snapshots
+or data wipe. Verify effective RAM: this image raises a requested 1.5 GiB to
+4 GiB. Keep host testing, builds and emulator execution sequential to limit RAM usage.
+Stop if C: free space falls below 5 GiB; never clean unrelated caches or data.
+
+The fresh/restart phases exercise real MethodChannel messages, Keystore, independently
+encrypted identical copies, ambiguous/orphan artifacts, actual unfinished
+AtomicFile writes, corruption/AAD failures, ciphertext snapshot conflicts, CAS
+and preserved blocked records. Host simulations remain separate evidence.
+Sudden power loss, reboot, OEM behavior, older backup-writing Android releases,
+multi-process contention, permanent key invalidation and backup/device transfer
+require further validation. A staged unfinished write/process restart does not
+prove sudden-power-loss durability or device-loss recovery.
+
+### C2b.1 completed host and focused Android validation
+
+The continuation preserved all existing uncommitted changes and the approved
+pair-only recovery policy. `flutter analyze --no-pub` passed with no issues.
+The complete `flutter test --no-pub --concurrency=1` suite passed **583 tests**,
+zero failures/skips: the 538-test C2b baseline plus 45 recovery tests. This
+supersedes the previous incomplete 570-test run stopped below the disk gate.
+The earlier 256 MiB direct Kotlin compile remains historical compile evidence;
+the successful Android Gradle build now also compiles MainActivity and the runner.
+
+Both isolated debug APKs built successfully **offline**, reusing API 36,
+Gradle 9.3.1, AGP 9.1.0, Kotlin 2.4.0 and the installed JBR. No dependency/SDK
+download, cache cleanup or pagefile change was needed. Existing Gradle/Kotlin
+deprecation warnings did not fail the build. App/test manifest inspection verified
+`com.example.chantipoint.journalvalidation` and its `.test` package/target before
+installation; the normal ChantiPoint app was not installed or launched.
+
+Runtime used the existing Pixel_9 API-37.2 x86_64 image with WHPX. Android reported
+**Android 17 / API 37 / 16,384-byte pages**. Execution was headless with two cores,
+software graphics, no snapshots, no boot animation and no data wipe. The emulator
+overrode the requested 1,536 MiB RAM to **4,096 MiB**; this is not a verified
+1.5 GiB guest run. An initial startup attempt was killed by Android's low-memory
+killer before journal results; the settled run exposed a fixture-only path check.
+The helper now canonicalizes Android's app-data parent, matching production,
+while retaining the slot-directory symlink check. Static stage/source diagnostics
+contain no raw exception messages or journal data. Production recovery code and
+the approved policy needed no changes in this continuation.
+
+| Android phase | Actual result |
+| --- | --- |
+| Fresh | **15 passed, 0 failed**, INSTRUMENTATION_CODE -1. |
+| Restart | **4 passed, 0 failed**, INSTRUMENTATION_CODE -1. |
+
+Fresh checks exercised Keystore encryption/decryption, exact main reads,
+independently encrypted identical .new/.bak normalization, blocked orphans and
+different records, full Dart validation before cleanup, tag/AAD failures,
+actual unfinished AtomicFile writes with truncated containers, stale ciphertext
+snapshots, native CAS conflicts, and retained blocked-state receipts.
+
+Only the isolated validation app was explicitly force-stopped between phases.
+No data/key clearing or reinstallation occurred between them. Restart assertions
+compare every stored byte against the expected original record, including the
+complete binding, original idempotency key, protocol/operation/full frozen command,
+phase, revision, flags and nullable receipt/block/migration fields. Both main-only
+restoration and duplicate recovery use this check. The incomplete write stayed
+blocked with identical artifacts. The final restart check deliberately deleted
+only the fictional fixture key, verified missing-key blocking without regeneration
+or ciphertext deletion, and left the encrypted fixture artifacts retained.
+Runtime commands were fictional legacy-V1 factory intents in format-2 records;
+no attendance RPC or live-controller workflow was exercised.
+
+The emulator was stopped after testing. All measured C: values during this
+continuation remained above 5 GiB; initial free space was 13.37 GiB on C: and
+23.68 GiB on E:. The initial running emulator left almost no available RAM;
+stopping it provided 3.21 GiB before host validation. Resource checks were repeated
+throughout the sequential run. The prior below-5-GiB resource stop was not repeated.
+After emulator shutdown, final measured free space was **11.63 GiB C: / 23.68 GiB
+E:**, with **2.99 GiB available RAM**. No emulator, Gradle JVM or Docker process
+remained in the final process check.
+
+**Still untested:** actual native cleanup/delete and synchronization failure
+injection (before/after duplicate deletion), older Android backup-writing AtomicFile
+implementations, multi-process contention, killing a process during a write,
+OS reboot, sudden power interruption, permanent Keystore invalidation, physical
+devices/OEM filesystems, and backup/device transfer. Host failure simulations
+are not native fault-injection results. A .bak fixture on API 37 does not validate
+older startWrite/finishWrite behavior. These results establish the listed modern
+emulator cases, not power-loss durability, device-loss recovery or production readiness.
+
+The focused offline build from `android/` is:
+
+```powershell
+.\gradlew.bat :app:assembleDebug :app:assembleDebugAndroidTest --offline --no-daemon --max-workers=1 -PjournalValidation=true -Ptarget=test/device/journal_runtime_probe.dart -Ptarget-platform=android-x64
+```
+
+Build before starting the emulator. Install only the resulting isolated app/test
+APKs, run `com.example.chantipoint.journalvalidation.test/com.example.chantipoint.journal.JournalRuntimeInstrumentation`
+with phase `fresh`, force-stop only `com.example.chantipoint.journalvalidation`,
+then run phase `restart` without clearing data. The fresh phase intentionally
+resets only its fictional fixture namespace; the restart phase tests persistence
+and finally removes only that fixture key to test missing-key preservation.
+This configuration and both runner phases have been executed successfully.
+
+After installing the verified isolated APKs, the exact phase sequence is:
+
+```powershell
+adb -s emulator-5554 shell am instrument -w -r -e phase fresh com.example.chantipoint.journalvalidation.test/com.example.chantipoint.journal.JournalRuntimeInstrumentation
+adb -s emulator-5554 shell am force-stop com.example.chantipoint.journalvalidation
+adb -s emulator-5554 shell am instrument -w -r -e phase restart com.example.chantipoint.journalvalidation.test/com.example.chantipoint.journal.JournalRuntimeInstrumentation
+```
 
 C2c still needs trusted legacy provenance, approved source binding, actual SHA-256
 verification, stopped legacy writers, verified encrypted replacement before
