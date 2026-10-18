@@ -1,4 +1,4 @@
-# Android Encrypted Journal Storage — C2b / C2b.1
+# Android Encrypted Journal Storage — C2b / C2b.1 / C2c.2
 
 C2b implements the Android backend for the [format-2 journal](secure-command-journal.md).
 The Dart schema/state machine and live version-1 attendance flow are unchanged.
@@ -22,6 +22,9 @@ listed below are required, including NULL. Unexpected fields fail explicitly.
 | `compareAndSwap` | `api_version: 1`, `binding`, `expected_revision: int`, `expected_key: String or NULL`, `replacement: Uint8List` | `{status: written, revision: int}` |
 | `inspectRecoveryV1` | `api_version: 1`, `binding` | `{recovery_version: 1, snapshot: <SHA-256 hex>, candidates: [{kind: main/new/bak, record: Uint8List}]}` |
 | `normalizeRecoveryV1` | `api_version: 1`, `binding`, `snapshot`, `validated_record: Uint8List` | `{status: stored, record: Uint8List}` |
+| `inspectLegacySourceV1` | `api_version: 1`, `binding` | `{inspection_version: 1, binding, snapshot, basename, source: Uint8List or NULL, artifacts: [{suffix, bytes: Uint8List}]}` |
+| `verifyMigrationTargetV1` | `api_version: 1`, `binding`, `expected_record: Uint8List` | `{status: target_verified, record: Uint8List}` |
+| `cleanupLegacySourceV1` | `api_version: 1`, `binding`, `expected_record`, `source_snapshot` | `{status: source_absent, record: Uint8List}`; plaintext cleanup is validation-package-only. |
 
 When sidecars exist, `read` returns `{status: recovery_required}`. The adapter
 performs one inspection, complete Dart validation and, only if permitted, one
@@ -30,10 +33,129 @@ on sidecars; it never performs recovery implicitly. A concurrent reader that has
 already normalized may leave a valid main-only inspection, which needs no cleanup.
 
 There is no arbitrary path, key export, general encryption, reset, delete-all,
-migration or network method. Channel bytes are plaintext inside the application
+coordinator or network method. Channel bytes are plaintext inside the application
 process; native files contain encrypted containers only. Unsupported platforms,
 missing plugins, malformed responses and unknown native errors fail explicitly.
 No preferences or plaintext file fallback exists.
+
+## C2c.2 isolated migration primitives
+
+`AndroidLegacyMigration.inspect`, `verifyTarget` and `cleanup` are opt-in mechanical
+operations. They do not issue approvals, run the migration planner/coordinator,
+change journal state, mark cleanup complete or activate startup integration.
+The live legacy writer/controller and backup configuration remain unchanged.
+
+Source inspection derives `attendance_<base64url(company:profile), no padding>.json`
+from the binding under canonical Android `filesDir`. Callers supply no path,
+basename or directory. Only that exact filename and names beginning with its full
+name plus `.` are associated: `.tmp` is temporary; other dotted suffixes are
+unexpected artifacts. Unrelated app files are ignored. Up to eight sidecars and
+64 KiB of aggregate source/artifact bytes are accepted. Inspection does not touch
+Keystore, create a journal/key, repair artifacts, rename or delete anything.
+
+Native code rejects links, non-regular files, hard-linked source/artifact files,
+canonical escapes, unreadable directories/files and unstable observations. It
+uses lstat, no-follow opens and descriptor/path identity checks; bounded reads
+and a repeated associated-name scan avoid treating an IO failure as absence.
+The snapshot token is SHA-256 over domain/package/full-binding-slot/basename
+framing, source presence/length/exact bytes and sorted artifact suffix/length/exact
+bytes. It is a content identity, not provenance or proof of writer quiescence.
+Native hashing uses JDK MessageDigest; Dart source snapshots use existing crypto.
+
+Every successful `Os.open` has an explicit `Os.close` in `finally`, including
+stream-construction, descriptor-check, bounded-read and post-read failures.
+Android's [`FileInputStream(FileDescriptor)` contract](https://developer.android.com/reference/java/io/FileInputStream#FileInputStream(java.io.FileDescriptor))
+leaves ownership with the caller; closing the borrowed stream is insufficient.
+A close-only failure returns the safe typed `journal_unreadable` error. If an
+earlier operation failed, its failure is retained and only a data-free typed
+close failure is suppressed onto it. Protected opens and snapshot checks remain
+unchanged; neither garbage collection nor a pathname stream owns these descriptors.
+
+The Dart adapter strictly validates wire shapes, full returned binding, derived
+basename and artifact bounds/order; it copies source bytes into the immutable
+C2c.1 snapshot and reuses strict legacy parsing. Malformed content or a mismatched
+owner raises a typed error while native evidence stays untouched. A returned
+snapshot with artifact observations cannot be passed to adapter cleanup.
+
+For target operations, Dart fully validates the expected record before invoking
+native code. Only pending legacy migration records in `uncertain` or `confirmed`
+are eligible. Under the existing process mutex and OS journal lock, native code
+reopens/authenticates actual ciphertext, requires exact complete expected plaintext,
+checks pending metadata/derived basename/owner and legacy command shape, syncs the
+main descriptor and directories, then reopens/authenticates and compares all bytes
+again. Revision, command, key, timestamp strings, phase, receipt and migration
+identity remain unchanged. This fresh barrier is required even after a successful
+read following an earlier reported write failure. No encryption key is created.
+
+Target sidecars return `recovery_required`. The adapter delegates to existing
+C2b.1 fully validated recovery and retries the native operation once, only if the
+entire recovered record matches the expected bytes. A second race or ambiguous
+history blocks. No new AtomicFile recovery/promotion/revision-selection policy is
+introduced.
+
+**Plaintext cleanup is rejected natively unless the actual Context package is
+exactly `com.example.chantipoint.journalvalidation`.** The normal app is rejected
+before locks, directory creation, key access or source inspection. The source
+cleanup helper checks the namespace as well. There is no Dart boolean or request
+field that bypasses this gate. The test-only normal-namespace check uses a native
+Context wrapper; the normal application is not installed or launched by this test.
+
+Within the shared locks, cleanup repeats the target barrier, reinspects the source
+and artifacts, requires its exact snapshot token and no sidecars, and compares the
+actual SHA-256, owner, version, operation and complete payload with the target's
+pending migration identity/command. A caller digest is not deletion authority.
+Only the derived finalized source is unlinked with its Boolean result checked.
+The source directory and app-data parent are synchronized, and absence of source
+and associated artifacts is checked again. An already absent source still requires
+the fresh target barrier, matching absence snapshot, directory sync and recheck.
+
+Success means only mechanically verified durable absence under these operations;
+the record still has cleanup pending. A future coordinator must use the existing
+cleanup-completion CAS. A failed reply/sync can occur after unlink. Reinspect on
+retry and repeat target durability and durable absence checks; never assume
+rollback, recreate plaintext, reset a command or manufacture confirmation.
+
+The unchanged legacy Dart writer does not honor these native locks. Namespace
+gating confines destructive execution to fictional tests; it does not solve
+production writer fencing. Trusted origin approval, full authorization generation,
+global one-source/one-destination enforcement, writer retirement, restart
+coordination, backup exclusions and activation remain integration requirements.
+
+The instrumentation source set alone owns fault-control state. An ordinary native
+IO seam defaults to real synchronization/deletion and has no channel controls.
+The runner injects a target-barrier failure before deletion, a false deletion
+result, and a failure after unlink before source-directory sync. These are
+deterministic injected failures, not kernel faults or power interruption. Restart
+fixtures deliberately stage source-present and already-deleted boundaries before
+force-stop; they are not actual termination during an operation. Original runtime
+tests remain, with fictional key loss last.
+
+Descriptor regressions use test-only `/proc/self/fd` inspection filtered to the
+exact fictional source and its dotted sidecars, including kernel ` (deleted)`
+targets. Counts are checked after each operation, rather than comparing totals
+for the Flutter/VM process. Positive controls prove that the counter observes a
+descriptor after closing a borrowed stream, for a source, a sidecar and an
+unlinked sidecar, and that explicit close releases it. Repeated checks cover
+finalized reads, source-plus-sidecar reads, oversized source/artifact rejection
+after open, all three cleanup-failure/retry boundaries, and already-absent cleanup
+before and after force-stop. Complete encrypted records must remain unchanged.
+These controls exist only in the isolated instrumentation source set and its
+runtime probe; results expose counts/static assertions, not paths or file bytes.
+
+C2c.2 descriptor-review validation passed analysis and all 739 serial host tests.
+Both isolated APKs rebuilt offline in 2 minutes 32 seconds; actual Android 17/API
+37 x86_64 with 16 KiB pages passed fresh **36/36** and restart **6/6**, zero
+failures, both `INSTRUMENTATION_CODE: -1`. This adds four descriptor-regression
+checks to the initial 32 fresh checks and extends both migration restart checks.
+The three native injections and both staged migration restart boundaries passed
+with fixture-descriptor and complete-record comparisons. The normal
+namespace guard was exercised via a native Context wrapper. Only the isolated app
+was force-stopped; no data/key clearing or reinstall occurred between phases.
+The final original key-loss check remains last. The emulator was stopped after
+validation. Native descriptor-close failures were not injected. The first
+emulator startup was stopped at the C: disk threshold; validation ran only after
+resource recovery. See Development Status for measurements and remaining limits;
+these results do not establish power-loss durability.
 
 ## Slots, keys and AAD
 
@@ -343,7 +465,7 @@ emulator cases, not power-loss durability, device-loss recovery or production re
 The focused offline build from `android/` is:
 
 ```powershell
-.\gradlew.bat :app:assembleDebug :app:assembleDebugAndroidTest --offline --no-daemon --max-workers=1 -PjournalValidation=true -Ptarget=test/device/journal_runtime_probe.dart -Ptarget-platform=android-x64
+.\gradlew.bat :app:assembleDebug :app:assembleDebugAndroidTest --offline --no-daemon --max-workers=1 '-PjournalValidation=true' '-Ptarget=test/device/journal_runtime_probe.dart' '-Ptarget-platform=android-x64'
 ```
 
 Build before starting the emulator. Install only the resulting isolated app/test

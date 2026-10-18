@@ -17,7 +17,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 import javax.crypto.AEADBadTagException
 
 /** Process-scoped worker; channel lifetime never owns keys or journal contents. */
-class JournalChannel(context: Context, messenger: BinaryMessenger) : MethodChannel.MethodCallHandler {
+class JournalChannel internal constructor(context: Context, messenger: BinaryMessenger,
+                     private val migrationIo: LegacyMigrationIo = RealLegacyMigrationIo) : MethodChannel.MethodCallHandler {
     private val applicationContext = context.applicationContext
     private val active = AtomicBoolean(true)
     private val main = Handler(Looper.getMainLooper())
@@ -33,7 +34,8 @@ class JournalChannel(context: Context, messenger: BinaryMessenger) : MethodChann
     init { channel.setMethodCallHandler(this) }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
-        if (call.method !in setOf("read", "compareAndSwap", "inspectRecoveryV1", "normalizeRecoveryV1")) {
+        if (call.method !in setOf("read", "compareAndSwap", "inspectRecoveryV1", "normalizeRecoveryV1",
+                "inspectLegacySourceV1", "verifyMigrationTargetV1", "cleanupLegacySourceV1")) {
             result.notImplemented(); return
         }
         try { worker.execute {
@@ -42,12 +44,31 @@ class JournalChannel(context: Context, messenger: BinaryMessenger) : MethodChann
                 exactFields(args, when (call.method) {
                     "compareAndSwap" -> setOf("api_version", "binding", "expected_revision", "expected_key", "replacement")
                     "normalizeRecoveryV1" -> setOf("api_version", "binding", "snapshot", "validated_record")
+                    "verifyMigrationTargetV1" -> setOf("api_version", "binding", "expected_record")
+                    "cleanupLegacySourceV1" -> setOf("api_version", "binding", "expected_record", "source_snapshot")
                     else -> setOf("api_version", "binding")
                 })
                 if (channelInteger(args["api_version"]) != 1L) problem("journal_unsupported_format")
                 val binding = SlotBinding.parse(args["binding"])
                 val store = EncryptedJournalStore(applicationContext)
-                val response: Map<String, Any> = if (call.method == "read") {
+                val response: Map<String, Any?> = if (call.method == "inspectLegacySourceV1") {
+                    LegacySourceFiles(applicationContext).inspect(binding).toWire(binding)
+                } else if (call.method in setOf("verifyMigrationTargetV1", "cleanupLegacySourceV1")) {
+                    val input = args["expected_record"] as? ByteArray ?: problem("journal_corrupt")
+                    if (input.size > RECORD_LIMIT) problem("journal_corrupt")
+                    val snapshot = if (call.method == "cleanupLegacySourceV1") {
+                        text(args["source_snapshot"], 64).also {
+                            if (!Regex("^[0-9a-f]{64}$").matches(it)) problem("journal_corrupt")
+                        }
+                    } else null
+                    try {
+                        val record = store.verifyMigrationTarget(binding, input.copyOf(), snapshot, migrationIo)
+                        mapOf("status" to if (snapshot == null) "target_verified" else "source_absent", "record" to record)
+                    } catch (error: JournalProblem) {
+                        if (error.code != "journal_recovery_required") throw error
+                        mapOf("status" to "recovery_required")
+                    }
+                } else if (call.method == "read") {
                     try {
                         val record = store.read(binding)
                         if (record == null) mapOf("status" to "absent") else mapOf("status" to "stored", "record" to record)

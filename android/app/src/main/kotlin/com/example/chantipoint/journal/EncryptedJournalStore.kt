@@ -52,6 +52,28 @@ internal class EncryptedJournalStore(context: Context) {
         inspectRecovery(root, binding, files, existingKey(files.isNotEmpty()))
     }
 
+    /** Fresh barrier and optional validation-only cleanup, all under the SAME locks. */
+    fun verifyMigrationTarget(binding: SlotBinding, expected: ByteArray, sourceSnapshot: String? = null,
+                              io: LegacyMigrationIo = RealLegacyMigrationIo): ByteArray {
+        // Gate BEFORE locks, directory creation, key access or source inspection.
+        if (sourceSnapshot != null) requireMigrationValidationNamespace(packageName)
+        return locked { root, files ->
+            val target = PendingLegacyTarget.inspect(expected, binding)
+            val key = existingKey(files.isNotEmpty())
+            val actual = readStored(root, binding, files, key) ?: problem("journal_command_conflict")
+            if (!MessageDigest.isEqual(actual, expected)) problem("journal_revision_conflict")
+            io.checkpoint("target_sync")
+            try { FileInputStream(File(root, filename(binding))).use { it.fd.sync() } }
+            catch (_: Exception) { problem("journal_sync_failure") }
+            syncDirectory(root)
+            val verified = readStored(root, binding, inspectFiles(root), key) ?: problem("journal_storage_failure")
+            if (!MessageDigest.isEqual(verified, expected)) problem("journal_revision_conflict")
+            if (sourceSnapshot != null) LegacySourceFiles(context).cleanup(binding, target, sourceSnapshot, io)
+            // Return only the mechanically verified original record; no journal transition.
+            verified
+        }
+    }
+
     fun normalizeRecovery(binding: SlotBinding, snapshot: String, validatedRecord: ByteArray): ByteArray =
         locked { root, files ->
             val key = existingKey(files.isNotEmpty())

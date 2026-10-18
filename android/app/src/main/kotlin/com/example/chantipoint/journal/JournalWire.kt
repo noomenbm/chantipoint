@@ -51,6 +51,7 @@ private val bindingFields = linkedSetOf(
 private val uuid = Regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 internal data class SlotBinding(val values: List<String>) {
+    fun toWire(): Map<String, String> = bindingFields.zip(values).toMap()
     companion object {
         fun parse(value: Any?): SlotBinding {
             val map = value as? Map<*, *> ?: problem("journal_corrupt")
@@ -91,6 +92,7 @@ internal data class JournalHeader(
     val phase: String,
     val command: Map<*, *>?,
     val confirmation: Any?,
+    val envelope: Map<*, *>,
 ) {
     companion object {
         fun inspect(bytes: ByteArray, binding: SlotBinding): JournalHeader {
@@ -124,7 +126,7 @@ internal data class JournalHeader(
                 if (parameters.toByteArray(Charsets.UTF_8).size > 16 * 1024) problem("journal_corrupt")
                 text(it["idempotency_key"], 160)
             }
-            return JournalHeader(revision, key, phase, command, root["confirmation"])
+            return JournalHeader(revision, key, phase, command, root["confirmation"], root)
         }
 
         private fun integer(value: Any?): Long {
@@ -135,12 +137,12 @@ internal data class JournalHeader(
     }
 }
 
-private data class NumberToken(val raw: String)
+internal data class NumberToken(val raw: String)
 
 /** JsonReader handles lexical parsing; duplicate names and allocation are bounded.
  * Request/receipt JSON strings stay opaque: Kotlin does not recreate Dart codecs.
  */
-private class StrictEnvelopeJson(text: String) {
+internal class StrictEnvelopeJson(text: String) {
     private val reader = JsonReader(StringReader(text)).apply { isLenient = false }
     private var nodes = 0
     fun read(): Any? = reader.use {

@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 import '../support/journal_fixtures.dart';
+import 'legacy_migration_runtime.dart';
 
 const _control = MethodChannel('chantipoint/journal_test_control');
 const _native = MethodChannel(AndroidJournalStorage.channelName);
@@ -109,6 +110,7 @@ Future<void> main() async {
 
   final phase = await _control.invokeMethod<String>('phase');
   if (phase == 'fresh') {
+    await migrationInspectionChecks(run);
     await run('absence does not create a key', () async {
       _require((await _storage.read(_binding('absent'))).bytes == null);
       _require(await _control.invokeMethod<bool>('keyExists') == false);
@@ -272,6 +274,7 @@ Future<void> main() async {
         await _fixture('partialWrite', partial.binding);
       },
     );
+    await migrationFreshChecks(run);
   } else if (phase == 'restart') {
     await run(
       'Keystore and original prepared command survive process restart',
@@ -292,6 +295,7 @@ Future<void> main() async {
         JournalIssue.corrupt,
       );
     });
+    await migrationRestartChecks(run);
     await run('missing key never regenerates or deletes ciphertext', () async {
       final binding = _binding('persist');
       await _control.invokeMethod<void>('loseKey');

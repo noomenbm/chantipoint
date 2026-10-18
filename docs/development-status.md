@@ -1,6 +1,116 @@
 # ChantiPoint Development Status
 
-Current slice: **M2.3c.C2c.1, isolated host-side legacy migration planner**, based
+Current slice: **M2.3c.C2c.2, isolated Android migration primitives**, based on
+clean committed `6bd7235`. Versioned inspection derives only the bound legacy
+filename in Android filesDir, returns bounded immutable observations and content
+snapshot identity, and rejects links/non-regular/unreadable/ambiguous sources.
+Fresh target verification reuses encrypted storage locks, authentication,
+descriptor/directory synchronization and full-record readback. Checked source
+cleanup is natively rejected outside `com.example.chantipoint.journalvalidation`;
+no Dart boolean bypass exists. Pending metadata/commands/phases/revisions/receipts
+are retained. The later coordinator still owns cleanup-completion CAS.
+
+The live legacy writer/controller/startup, format/state machine, GPS/UI, backup
+rules and hosted Supabase are unchanged. Native locking does not fence the legacy
+writer. Trusted provenance approval, global source binding, writer retirement,
+restart coordination, backup policy and C3 activation remain pending. See
+[Android Journal Storage](android-journal-storage.md) and
+[Secure Command Journal](secure-command-journal.md).
+
+**Descriptor ownership review fix (2026-10-18):** `LegacySourceFiles.inspect`
+now explicitly closes each `Os.open` descriptor in `finally`. Android's borrowed
+`FileInputStream(FileDescriptor)` does not own that descriptor. Construction,
+fstat, bounded reads and post-read checks are all covered. A close-only error
+becomes typed `journal_unreadable`; an earlier failure is preserved with a safe
+typed close failure suppressed. No-follow, identity, bounds and snapshot checks
+are retained. Production deletion remains disabled.
+
+Test-only fixture-specific `/proc/self/fd` counts include unlinked descriptors.
+Positive controls verify detection after a borrowed stream closes and after a
+sidecar is unlinked. Four new fresh checks repeatedly exercise finalized reads,
+source-plus-sidecar reads, oversized source/artifact failure after open, and
+cleanup failures/retries/already-absent cleanup. Existing restart checks also
+repeat absent cleanup, assert no fixture descriptors remain, and compare the
+complete original encrypted records. No private paths/content are reported.
+
+Review-fix host validation: analysis passed with no issues; all **739/739**
+Flutter tests passed serially. Both isolated APKs rebuilt offline successfully
+in **2 minutes 32 seconds**, with one worker, the unchanged 1 GiB Gradle heap and
+existing SDK/caches. Compilation is separate from actual runtime validation:
+Android 17/API 37 x86_64, 16 KiB pages passed **fresh 36/36; restart 6/6**, zero
+failures, both `INSTRUMENTATION_CODE: -1`. Only the isolated app was force-stopped
+between phases; no data/key clearing or reinstall occurred between them. The
+fictional key-loss check remains last. The task emulator was stopped afterward.
+
+The first emulator startup hit the **below-5-GiB C: stop rule** and was stopped
+before installation or instrumentation. No cleanup or pagefile change was made.
+After resources recovered to **11.33 GiB C: / 3.02 GiB available RAM**, one retry
+succeeded. The retry's monitored startup minimum was **8.81 GiB C:**; subsequent
+measurements through runtime/shutdown stayed at or above **8.75 GiB**. The image
+enforced a 4 GiB guest despite the smaller request. Final measurements after
+shutdown: **11.28 GiB C: / 23.68 GiB E:** free, **3.70 GiB available RAM**; no
+emulator, Gradle JVM or Docker process remained. No downloads were required.
+
+`git diff --check` and new-file whitespace checks passed. Native close-failure
+injection remains untested. The older AtomicFile, kernel-fault, multi-process,
+mid-operation termination, power-loss, device/OEM and backup/transfer limitations
+below remain. These results do not establish power-loss durability or activate
+migration, the live controller or hosted v2.
+
+**Initial C2c.2 validation (before the descriptor review fix):**
+
+C2c.2 host validation: `flutter analyze --no-pub` passed after two brace-style
+findings were fixed; `flutter test --no-pub --concurrency=1` passed **739/739**,
+zero failures/skips (704 retained plus 35 new adapter tests).
+
+Both isolated app/test APKs built successfully offline with existing SDK/Gradle
+caches, one worker and the existing 1 GiB heap. The first invocation stopped
+before compilation because PowerShell split an unquoted target property into a
+`.dart` task; quoted argument strings fixed the command. The successful build
+took 1 minute 8 seconds; existing Java/Gradle/Kotlin warnings were non-fatal.
+APK package and instrumentation-target inspection confirmed only the isolated
+validation namespace before installation.
+
+Actual Android 17 / API 37 x86_64, 16 KiB page results: **fresh 32/32; restart
+6/6**, zero failures, each with `INSTRUMENTATION_CODE: -1`. These retain all prior
+15 fresh/4 restart checks and add 17 fresh/2 restart migration checks. Coverage
+includes exact source bytes/hashes, absence/unrelated files, malformed/oversized/
+unreadable inputs, temporary/unexpected artifacts, links/non-regular files,
+path-request rejection, target/source relationships, stale snapshots/targets,
+blocked states, existing encrypted-sidecar policy and native normal-namespace
+cleanup rejection. The namespace-negative test uses a native Context wrapper;
+the normal app was not installed/launched.
+
+All three deterministic native injections passed: target barrier failure before
+deletion, false unlink result, and failure after unlink before source-directory
+sync. Encrypted evidence stayed unchanged; source remained present for the first
+two and absent for the third. Subsequent retries succeeded, exercising lock
+release and fresh durable-absence verification. Complete expected records retain
+original commands/keys/binding, phase/revision, confirmed receipt and pending
+migration metadata. After force-stopping only the isolated app, source-present
+and already-deleted fixtures resumed successfully without data/key clearing or
+reinstallation between phases. The original fictional key-loss check remained
+last, intentionally leaving fixture ciphertext retained without its fixture key.
+
+Execution was sequential: host tests, build, then the existing headless Pixel_9
+emulator with two cores/software graphics/no snapshots/no wipe. Its image again
+enforced 4 GiB guest RAM despite a 1.5 GiB request (guest MemTotal 4,007,032 KiB).
+C: initially had 8.53 GiB free; all measured values stayed above the 5 GiB stop
+threshold. The user closed unneeded applications after a low-memory check.
+The task emulator was stopped afterward. No SDK/package downloads, destructive
+cleanup, pagefile changes, Docker startup, hosted operations or real migration
+occurred. `git diff --check` and new-file whitespace checks passed.
+After emulator shutdown: **11.40 GiB C: / 23.68 GiB E:** free, **3.49 GiB available
+RAM**, and no emulator, Gradle JVM or Docker process in the resource check.
+
+The injected failures are not real kernel IO faults, and staged/force-stop
+boundaries are not a process kill during an operation. Sudden power loss/reboot,
+older AtomicFile implementations, multi-process stress, permanent key invalidation,
+physical devices/OEM behavior, backup/transfer and C2b.1 duplicate-cleanup native
+failure injection remain unvalidated. These results do not establish power-loss
+durability, device-loss recovery or production readiness.
+
+Previous slice: **M2.3c.C2c.1, isolated host-side legacy migration planner**, based
 on committed `4225fcd`. Bounded immutable source snapshots now compute actual
 SHA-256 using cached `crypto` 3.0.7, promoted from transitive to direct dependency
 without a version upgrade. Strict C2a parsing/approval/schema/transitions are reused.

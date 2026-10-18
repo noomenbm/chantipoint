@@ -2,6 +2,8 @@ package com.example.chantipoint.journal
 
 import android.app.Activity
 import android.app.Instrumentation
+import android.content.ContextWrapper
+import android.system.ErrnoException
 import android.os.Bundle
 import android.system.Os
 import android.system.OsConstants
@@ -13,11 +15,13 @@ import io.flutter.plugin.common.MethodChannel
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.security.KeyStore
 import java.security.MessageDigest
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import javax.crypto.Cipher
 import javax.crypto.SecretKey
 
@@ -31,6 +35,7 @@ class JournalRuntimeInstrumentation : Instrumentation() {
     private lateinit var journal: JournalChannel
     private lateinit var control: MethodChannel
     private var stage = "namespace"
+    private val migrationFault = AtomicReference<String?>(null)
 
     override fun onCreate(arguments: Bundle?) {
         super.onCreate(arguments)
@@ -47,7 +52,17 @@ class JournalRuntimeInstrumentation : Instrumentation() {
             stage = "engine-setup"
             runOnMainSync {
                 engine = FlutterEngine(targetContext)
-                journal = JournalChannel(targetContext, engine.dartExecutor.binaryMessenger)
+                journal = JournalChannel(targetContext, engine.dartExecutor.binaryMessenger, object : LegacyMigrationIo {
+                    // Controls/state exist ONLY in this androidTest source set.
+                    private fun consume(stage: String): Boolean {
+                        val requested = migrationFault.get()
+                        return requested == stage && migrationFault.compareAndSet(requested, null)
+                    }
+                    override fun checkpoint(stage: String) {
+                        if (consume(stage)) problem("journal_sync_failure")
+                    }
+                    override fun deleteSource(file: File): Boolean = if (consume("delete")) false else file.delete()
+                })
                 control = MethodChannel(engine.dartExecutor.binaryMessenger, "chantipoint/journal_test_control")
                 control.setMethodCallHandler { call, result ->
                     try {
@@ -66,7 +81,7 @@ class JournalRuntimeInstrumentation : Instrumentation() {
                 engine.dartExecutor.executeDartEntrypoint(DartExecutor.DartEntrypoint.createDefault())
             }
             stage = "probe"
-            if (!complete.await(90, TimeUnit.SECONDS)) report.putString("stream", "Journal probe timed out.")
+            if (!complete.await(120, TimeUnit.SECONDS)) report.putString("stream", "Journal probe timed out.")
         } catch (error: Exception) {
             // Static stage and source location only; no data/provider messages.
             val frame = error.stackTrace.firstOrNull { it.className == javaClass.name }
@@ -98,6 +113,35 @@ class JournalRuntimeInstrumentation : Instrumentation() {
             check(file.delete())
         }
         keyStore().deleteEntry(alias())
+        val legacyRoot = targetContext.filesDir.canonicalFile
+        for (file in legacyRoot.listFiles().orEmpty().filter {
+            it.name.startsWith("attendance_") || it.name == "journal_unrelated_fixture"
+        }) {
+            // Fixed isolated namespace only. Never follow a symlink or recurse.
+            check(file.parentFile == legacyRoot)
+            check(file.delete())
+        }
+    }
+
+    // Fixture-specific counts ignore unrelated VM/Flutter descriptors. The kernel
+    // marks an unlinked open file with " (deleted)"; count those as leaks too.
+    // These diagnostics and their positive controls exist only in androidTest.
+    private fun sourceDescriptorCounts(binding: SlotBinding): Map<String, Int> {
+        val source = File(targetContext.filesDir.canonicalFile, legacyBasename(binding)).path
+        var finalized = 0
+        var artifacts = 0
+        val entries = File("/proc/self/fd").listFiles() ?: error("Descriptor inspection unavailable")
+        for (entry in entries) {
+            val target = try { Os.readlink(entry.path).removeSuffix(" (deleted)") }
+            catch (error: ErrnoException) {
+                // The directory enumeration's own descriptor may already be closed.
+                if (error.errno == OsConstants.ENOENT) continue
+                throw error
+            }
+            if (target == source) finalized++
+            else if (target.startsWith("$source.")) artifacts++
+        }
+        return mapOf("source" to finalized, "artifacts" to artifacts)
     }
 
     private fun fixture(call: MethodCall): Any? {
@@ -109,6 +153,62 @@ class JournalRuntimeInstrumentation : Instrumentation() {
         }
         val args = call.arguments as Map<*, *>
         val binding = SlotBinding.parse(args["binding"])
+        if (call.method == "sourceDescriptorCounts") return sourceDescriptorCounts(binding)
+        if (call.method == "sourceDescriptorProbe") {
+            val suffix = args["suffix"] as String
+            check(suffix in setOf("", ".tmp"))
+            val unlink = args["unlink"] == true
+            check(!unlink || suffix == ".tmp")
+            val file = File(targetContext.filesDir.canonicalFile, legacyBasename(binding) + suffix)
+            val before = sourceDescriptorCounts(binding)
+            val kind = if (suffix.isEmpty()) "source" else "artifacts"
+            val fd = Os.open(file.path, OsConstants.O_RDONLY or OsConstants.O_NOFOLLOW, 0)
+            try {
+                // Reproduce the old borrowed-stream close: the counter must
+                // still see our descriptor until the explicit Os.close below.
+                FileInputStream(fd).use { check(it.read() >= 0) }
+                check(sourceDescriptorCounts(binding)[kind] == before.getValue(kind) + 1)
+                if (unlink) {
+                    check(file.delete())
+                    check(sourceDescriptorCounts(binding)[kind] == before.getValue(kind) + 1)
+                }
+            } finally { Os.close(fd) }
+            check(sourceDescriptorCounts(binding) == before)
+            return true
+        }
+        if (call.method == "migrationFault") {
+            val value = args["stage"] as String
+            check(value in setOf("target_sync", "delete", "source_sync"))
+            migrationFault.set(value)
+            return null
+        }
+        if (call.method == "normalNamespaceRejected") {
+            val normal = object : ContextWrapper(targetContext) {
+                override fun getPackageName() = "com.example.chantipoint"
+            }
+            try {
+                EncryptedJournalStore(normal).verifyMigrationTarget(binding, args["record"] as ByteArray, "0".repeat(64))
+            } catch (error: JournalProblem) { return error.code == "journal_illegal_transition" }
+            return false
+        }
+        if (call.method == "legacyFixture") {
+            val legacyRoot = targetContext.filesDir.canonicalFile
+            val source = File(legacyRoot, legacyBasename(binding))
+            val suffix = args["suffix"] as? String ?: ""
+            check(suffix in setOf("", ".tmp", ".bak"))
+            val target = File(legacyRoot, source.name + suffix)
+            when (args["operation"] as String) {
+                "write" -> FileOutputStream(target).use { it.write(args["bytes"] as ByteArray); it.fd.sync() }
+                "delete" -> if (legacyRoot.list()?.contains(target.name) == true) check(target.delete())
+                "directory" -> check(target.mkdir())
+                "symlink" -> Os.symlink(File(targetContext.cacheDir, "fictional-migration-outside").path, target.path)
+                "unreadable" -> Os.chmod(target.path, 0)
+                "readable" -> Os.chmod(target.path, 384)
+                "unrelated" -> File(legacyRoot, "journal_unrelated_fixture").writeText("fictional")
+                else -> error("Unknown legacy fixture")
+            }
+            return null
+        }
         val base = File(root(), "slot_${binding.slotId}.bin")
         val artifacts = listOf(base, File(base.path + ".new"), File(base.path + ".bak"))
         fun syncRoot() {
@@ -125,6 +225,11 @@ class JournalRuntimeInstrumentation : Instrumentation() {
                 return digest.digest().joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
             }
             "presence" -> return mapOf("main" to base.exists(), "new" to artifacts[1].exists(), "bak" to artifacts[2].exists())
+            "removeFixtureSidecar" -> {
+                val kind = args["kind"] as String
+                check(kind in setOf("new", "bak"))
+                check(File(base.path + ".$kind").delete())
+            }
             "sidecar", "replaceMain" -> {
                 val kind = if (call.method == "replaceMain") "main" else args["kind"] as String
                 check(kind in setOf("main", "new", "bak"))

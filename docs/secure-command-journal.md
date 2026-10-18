@@ -261,8 +261,9 @@ changes; disposal and an instance-local queue are insufficient. Verify the compl
 authenticated encrypted record and synchronize it and its directories before
 checked deletion; then synchronize/verify plaintext absence before attesting
 completion with the existing CAS. A readable record after a reported failed write
-does not prove the failed synchronization succeeded. A native durability barrier,
-lost-response handling and restart coordination are still required. Planner
+does not prove the failed synchronization succeeded. C2c.1 supplies no native
+durability barrier, lost-response handling or restart coordination. C2c.2 below
+adds isolated mechanical barriers; production coordination is still required. Planner
 failures never move a record into the terminal blocked journal phase.
 
 A per-slot planner cannot enforce one-source/one-destination uniqueness. Durable
@@ -277,6 +278,36 @@ or power-loss/device-loss recovery guarantee is implied.
 
 Host validation results are recorded in Development Status. C2c.1 performs no
 Android build/runtime, native cleanup, migration execution or hosted operation.
+
+## C2c.2 native migration boundary
+
+`AndroidLegacyMigration` now supplies versioned source inspection, fresh durable
+target verification and checked cleanup primitives. This is separate from the
+pure C2c.1 planner and is not a complete coordinator. Exact native contracts,
+source snapshot framing/bounds, lock scope and retry behavior are documented in
+[Android Journal Storage](android-journal-storage.md).
+
+Plaintext cleanup is hard-gated to the fixed isolated validation-app namespace
+by native Context checks, before mutation. No caller boolean enables normal-app
+deletion. Native locks coordinate secure storage operations, not the unchanged
+legacy writer. Production writer retirement/fencing, trusted historical binding,
+global source uniqueness and coordinated activation remain unimplemented.
+
+Both target operations require a fully Dart-validated pending legacy record and
+exact native authenticated readback, explicit synchronization and a second full
+readback. Existing C2b.1 recovery alone handles eligible encrypted duplicates.
+Cleanup rechecks source/artifacts and the exact target/source relationship before
+checked unlink, directory sync and absence verification. It never calls the
+cleanup-completion CAS or changes a record's command, phase, revision or receipt.
+Failures after deletion stay failures; a fresh inspection and target/absence
+barriers are required on retry. Successful mechanical verification proves neither
+backend origin, attendance confirmation nor global binding exclusivity.
+
+Only fictional instrumentation fixtures exercise deletion and fault injection.
+The test-only control state injects pre-barrier, false-delete and post-unlink sync
+failures; staged boundaries and force-stop recovery remain distinct from a kill
+during IO and from sudden power loss. Backup rules remain unchanged. Actual
+validation and remaining platform limits are recorded in Development Status.
 
 ## Native C2b implementation and activation boundary
 
