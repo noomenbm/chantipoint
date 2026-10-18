@@ -506,13 +506,113 @@ failed CAS is not durability proof. Restored or another-instance confirmed
 records without evidence remain recovery-required. There is no new native
 barrier, Android composition, restart or power-loss claim in C3.1.
 
-Future production composition still needs receipt-preserving frozen transport,
-real auth-generation and credential scoping, closed-session canonical reads,
+C3.2 below supplies an isolated HTTP transport/canonical reader. Future
+production composition still needs trusted auth-generation and credential issuance,
 generic durable recovery, global ownership/fencing, approved migration provenance,
 deployment identity, backup policy, backend deployment and separate cutover
 approval. C2c.3's validation-only migration barriers are not generic C3 barriers.
 Actual host validation is recorded in Development Status; no Android validation
 was rerun for this slice.
+
+## C3.2 isolated HTTP transport and canonical reader
+
+`SupabaseAttendanceOperationTransport` implements the unchanged C3.1 transport
+and canonical-reader ports. It does not call `SupabaseAttendanceRepository` or
+use global Supabase auth. No default client, production credential issuer or
+main/controller/auth/Android composition is supplied. Tests use fictional
+identities, an injected request authority and `MockClient.streaming` exclusively;
+no hosted requests, gate changes, migrations or native journal writes are made.
+
+`AttendanceRequestAuthority` must share the operation context's authorization
+epochs, including invalidation on logout intent, account switching and same-user
+relogin. Its asynchronous acquisition must settle its local work and return a
+memory-only scope for the exact five-field binding and generation. The scope
+pins a usable access token, independently trusted base project URI/publishable
+key and a current-authorization observation. UUID/token presence and a decoded
+JWT do not establish authorization or deployment provenance. Production issuance,
+refresh coordination and ownership/fencing remain unimplemented.
+
+The adapter checks authority currency before acquisition, then checks both
+currency observations, all five binding fields, generation and exact trusted
+endpoint after acquisition and immediately before HTTP submission. An invalid or
+unavailable authority cannot fall back to another account/project. Credential
+headers must be nonempty visible ASCII and are bounded to 8 KiB for the token and
+4 KiB for the project key. Nothing persists or logs these credentials.
+
+Each operation calls the injected client's `send` once, with redirects disabled
+and maximum redirects zero. The caller must provide a non-retrying client that
+honors these request settings, contains no hidden timeout/work wrapper and stays
+open while requests are outstanding, without logging request/response data or
+credentials. Installed `http` 1.6.0 provides streamed
+send/response APIs and IO redirect control; no upgrade is needed. The installed
+Supabase/PostgREST layer instead decodes response JSON and can retry GET/HEAD;
+the existing repository also uses a non-cancelling 20-second Future timeout.
+Neither path is reused here.
+
+Initial POST bodies are the original frozen `parametersJson` encoded as UTF-8,
+sent only to the derived `check_in_v2`/`check_out_v2` endpoint. Replay uses the
+existing `rpcParameters(replayOnly: true)` map contract: only that operational
+value changes; JSON whitespace/numeric spelling may be reserialized on the wire.
+The stored original string, timestamps, evidence, key and final note intent/text
+are untouched. No typed request, clock, location or note intent is regenerated.
+
+Request and retained response bodies are bounded to 16 KiB each. The adapter
+consumes response streams through termination, including error events, HTTP
+errors and oversized bodies. It discards excess/error-body bytes rather than
+buffering them or returning early. Content-Length does not substitute for the
+actual byte bound; a mismatch on a successful bounded response is rejected.
+The dependency owns incoming chunks; this bound does not control allocations
+inside an injected client or total network traffic/time. A never-ending stream
+keeps its future and C3.1 ownership outstanding. There is no internal timeout,
+detached work, automatic retry, request cancellation or server-rollback claim.
+
+Strict UTF-8 decoding retains the complete original successful response text,
+including whitespace, escapes and timestamp representations. A leading UTF-8
+BOM is rejected explicitly because Dart's decoder would silently strip it.
+The adapter never rebuilds an acknowledgement from DTOs or a decoded map.
+Only replay requests with a successful response containing the exact,
+duplicate-free two-field object `{"contract_version":2,"status":"not_found"}`
+produce `replayMiss`. Duplicate escaped keys, extra fields, noninteger versions,
+HTTP 404/errors, truncated/non-object JSON and initial-write misses cannot do so.
+Other successful UTF-8 bodies pass unchanged to C3.1's strict confirmation
+validator; an `acknowledged` carrier alone does not confirm attendance.
+
+After submission, dispatch deliberately finishes response processing even if
+authorization invalidates. Only C3.1 can validate/persist that late receipt in its
+original slot, under its existing receipt-only exception; no new request is
+initiated for an invalidated epoch. Canonical reads additionally recheck
+authorization after the full response and before returning a parsed session.
+
+Canonical GET selects by session ID, company ID and employee profile ID, with no
+active-session filter and a two-row limit to detect malformed multiplicity. The
+selected owner fields and complete v2 display fields are validated before the
+existing `WorkSession` parser is used. Active and closed rows are supported.
+An empty/RLS-filtered result returns null; wrong-owner/malformed rows fail closed.
+RLS still enforces active employee ownership or company-admin access on the
+server; explicit employee authorization and owner filters remain necessary.
+No service-role credential or RLS bypass is supplied. Null/error outcomes cannot
+prove attendance failure, clear a session or alter a retained confirmation.
+
+`AttendanceHttpFailure` exposes only these codes, never request URLs, credentials,
+response bodies or underlying exception text:
+
+| Code | Meaning |
+| --- | --- |
+| `contextInvalidated` | Authority/scope currency is false or cannot be observed. |
+| `authorityUnavailable` | Scope acquisition failed. |
+| `scopeMismatch` | Binding/generation/endpoint mismatch or invalid credential headers. |
+| `invalidRequest` | Legacy protocol, invalid session ID or out-of-bound request. |
+| `network` | Send or response-stream failure; server outcome remains unknown. |
+| `http` | Non-2xx response, including redirects and authorization/backend errors. |
+| `responseTooLarge` | Successful body exceeds the retained-byte limit. |
+| `malformedResponse` | Invalid UTF-8/BOM/length or malformed canonical row. |
+
+C3.1 remains unchanged: dispatch exceptions become `transportUncertain`, raw
+invalid receipts become `malformedAcknowledgement`, exact misses remain unresolved,
+and canonical null/errors retain confirmed receipts as `confirmedNeedsRefresh`.
+Safe codes do not establish permanent account denial or justify session cleanup.
+Actual host results are recorded in Development Status; native durability,
+production auth, real RLS/runtime integration and deployment remain unvalidated.
 
 ## Native C2b implementation and activation boundary
 

@@ -1,6 +1,62 @@
 # ChantiPoint Development Status
 
-Current slice: **M2.3c.C3.1, isolated attendance operation coordinator core**,
+Current slice: **M2.3c.C3.2, isolated v2 HTTP transport and canonical reader**,
+based on clean reviewed **`622c762`** on `feature/manual-attendance`.
+
+`AttendanceRequestAuthority` and its memory-only request scope supply the trust
+boundary for the exact five-field binding, captured authorization generation,
+trusted project endpoint/key and pinned access token. Only a fictional issuer is
+supplied. `SupabaseAttendanceOperationTransport` implements both existing C3.1
+ports directly through injected `http.Client`, without using the live repository,
+global auth, production configuration or application wiring. C3.1 code/sequencing,
+the legacy controller/repository, migration coordinator, Android storage, SQL,
+hosted Supabase and the deployment gate are unchanged.
+
+Each operation makes one HTTP send with redirects disabled, no implicit retry or
+internal timeout. Initial request JSON and complete successful receipt text are
+retained exactly; replay changes only the operational flag via the existing map
+contract without altering journal bytes. Credentials are pinned to the original
+scope, with currency/binding checks after acquisition and immediately before send.
+Late dispatch responses still reach C3.1 for original-slot receipt finalization;
+canonical reads additionally recheck authorization after consuming their response.
+
+Bodies are bounded to 16 KiB of retained bytes, with strict UTF-8 and explicit BOM
+rejection. Oversized/error bodies and stream errors are drained through termination;
+an endless response remains outstanding rather than detaching local work. No raw
+backend errors, response bodies or credentials appear in exception text/logs.
+Only an exact duplicate-free successful replay-only miss becomes `replayMiss`.
+Canonical queries filter session/company/employee IDs without an active-only
+restriction, validate returned ownership and parse existing `WorkSession` fields.
+Unavailable canonical reads preserve the confirmed receipt for refresh-only retry.
+
+C3.2 host validation:
+
+- `flutter test --no-pub --concurrency=1 test/supabase_attendance_operation_transport_test.dart test/attendance_operation_coordinator_test.dart`:
+  **172/172 passed** (96 new HTTP tests plus all 76 unchanged C3.1 tests), zero
+  failures/skips. Covers raw JSON/offset fidelity, frozen request/final-note
+  preservation, strict replay misses, one-attempt/redirect/error handling,
+  bounded stream draining/UTF-8/BOM/length checks, delayed acquisition, all
+  binding/generation mismatches, relogin/invalidation, late receipts without
+  stale refresh, caller timeout/queue lifetime and active/closed canonical reads.
+- `flutter analyze --no-pub`: passed, no issues.
+- `flutter test --no-pub --concurrency=1`: **964/964 passed** (868 retained plus
+  96 new), zero failures/skips, in approximately 1 minute.
+- `git diff --check` and new-file UTF-8/whitespace/newline checks passed.
+- C: **9.94 GiB** before work/full validation and **9.93 GiB** after; E:
+  **23.68 GiB** before/after. Final available RAM: **1.41 GiB**. C: remained
+  above the 5 GiB stop rule. Existing SDK/cache/dependencies were reused, without
+  package upgrades, dependency downloads, cleanup or pagefile changes.
+
+Production credential issuance must share C3.1 context epochs, including logout
+intent and same-user relogin; client ownership/lifetime must cover submitted local
+work through settlement. These trusted dependencies, global ownership/fencing,
+migration provenance/source assignment, generic native recovery, backup review,
+backend deployment/cutover, receipt consumption/compaction and app integration
+remain gated. No real requests/data, Android/Gradle/emulator, Docker or hosted
+operations are part of this slice; no native or power-loss guarantees are added.
+See [Secure Command Journal](secure-command-journal.md#c32-isolated-http-transport-and-canonical-reader).
+
+Previous slice: **M2.3c.C3.1, isolated attendance operation coordinator core**,
 based on clean reviewed **`9d74ed4`** on `feature/manual-attendance`.
 
 The opt-in core reuses format-2 `JournalCommand`, `JournalConfirmation`,
