@@ -52,7 +52,7 @@ class AndroidLegacyMigration {
     }
   }
 
-  static String _basename(JournalBinding binding) {
+  static String sourceBasename(JournalBinding binding) {
     final owner = '${binding.companyId}:${binding.profileId}';
     return 'attendance_${base64Url.encode(utf8.encode(owner)).replaceAll('=', '')}.json';
   }
@@ -75,7 +75,7 @@ class AndroidLegacyMigration {
             response['snapshot'] is! String ||
             !RegExp(r'^[0-9a-f]{64}$')
                 .hasMatch(response['snapshot'] as String) ||
-            response['basename'] != _basename(binding) ||
+            response['basename'] != sourceBasename(binding) ||
             !response.containsKey('source') ||
             (response['source'] != null && response['source'] is! Uint8List) ||
             response['artifacts'] is! List) {
@@ -122,7 +122,7 @@ class AndroidLegacyMigration {
         final source = bytes == null
             ? LegacySourceSnapshot.absent(artifacts: kinds)
             : LegacySourceSnapshot.file(
-                basename: _basename(binding),
+                basename: sourceBasename(binding),
                 bytes: bytes,
                 artifacts: kinds,
               );
@@ -148,6 +148,25 @@ class AndroidLegacyMigration {
 
   Future<void> verifyTarget(JournalBinding binding, List<int> expectedRecord) =>
       _targetOperation('verifyMigrationTargetV1', binding, expectedRecord);
+
+  /// No IO before the native Context package check; caller fields cannot enable it.
+  Future<void> requireIsolatedExecution() => _guard(() async {
+    final response = await channel.invokeMethod<Object?>(
+      'requireMigrationValidationV1',
+      {'api_version': 1},
+    );
+    if (response is! Map ||
+        response.length != 1 ||
+        response['status'] != 'validation_namespace') {
+      _malformed();
+    }
+  });
+
+  /// Verification only, never eligible for plaintext deletion.
+  Future<void> verifyCompleted(
+    JournalBinding binding,
+    List<int> expectedRecord,
+  ) => _targetOperation('verifyCompletedMigrationV1', binding, expectedRecord);
 
   /// Returns only mechanical durable-absence success. It does not mark journal
   /// cleanup complete. A failure can occur after unlink: inspect again on retry.
@@ -176,16 +195,19 @@ class AndroidLegacyMigration {
     if (checked.issue != null) throw JournalException(checked.issue!);
     final record = checked.record!;
     final migration = record.migration;
-    if (!const {
-          JournalPhase.uncertain,
-          JournalPhase.confirmed,
-        }.contains(record.phase) ||
-        record.command?.protocol != JournalProtocol.legacyV1 ||
+    final completed = method == 'verifyCompletedMigrationV1';
+    if ((!completed &&
+            !const {
+              JournalPhase.uncertain,
+              JournalPhase.confirmed,
+            }.contains(record.phase)) ||
+        (!completed && record.command?.protocol != JournalProtocol.legacyV1) ||
         migration == null ||
-        migration.plaintextCleanupComplete) {
+        migration.plaintextCleanupComplete != completed ||
+        record.phase == JournalPhase.blocked) {
       throw const JournalException(JournalIssue.illegalTransition);
     }
-    if (migration.sourceBasename != _basename(binding)) {
+    if (migration.sourceBasename != sourceBasename(binding)) {
       throw const JournalException(JournalIssue.identityMismatch);
     }
     if (source != null) {

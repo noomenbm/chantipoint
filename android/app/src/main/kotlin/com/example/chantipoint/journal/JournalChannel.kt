@@ -35,16 +35,24 @@ class JournalChannel internal constructor(context: Context, messenger: BinaryMes
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         if (call.method !in setOf("read", "compareAndSwap", "inspectRecoveryV1", "normalizeRecoveryV1",
-                "inspectLegacySourceV1", "verifyMigrationTargetV1", "cleanupLegacySourceV1")) {
+                "inspectLegacySourceV1", "verifyMigrationTargetV1", "cleanupLegacySourceV1",
+                "requireMigrationValidationV1", "verifyCompletedMigrationV1")) {
             result.notImplemented(); return
         }
         try { worker.execute {
             try {
                 val args = call.arguments as? Map<*, *> ?: problem("journal_corrupt")
+                if (call.method == "requireMigrationValidationV1") {
+                    exactFields(args, setOf("api_version"))
+                    if (channelInteger(args["api_version"]) != 1L) problem("journal_unsupported_format")
+                    requireMigrationValidationNamespace(applicationContext.packageName)
+                    main.post { if (active.get()) result.success(mapOf("status" to "validation_namespace")) }
+                    return@execute
+                }
                 exactFields(args, when (call.method) {
                     "compareAndSwap" -> setOf("api_version", "binding", "expected_revision", "expected_key", "replacement")
                     "normalizeRecoveryV1" -> setOf("api_version", "binding", "snapshot", "validated_record")
-                    "verifyMigrationTargetV1" -> setOf("api_version", "binding", "expected_record")
+                    "verifyMigrationTargetV1", "verifyCompletedMigrationV1" -> setOf("api_version", "binding", "expected_record")
                     "cleanupLegacySourceV1" -> setOf("api_version", "binding", "expected_record", "source_snapshot")
                     else -> setOf("api_version", "binding")
                 })
@@ -53,7 +61,7 @@ class JournalChannel internal constructor(context: Context, messenger: BinaryMes
                 val store = EncryptedJournalStore(applicationContext)
                 val response: Map<String, Any?> = if (call.method == "inspectLegacySourceV1") {
                     LegacySourceFiles(applicationContext).inspect(binding).toWire(binding)
-                } else if (call.method in setOf("verifyMigrationTargetV1", "cleanupLegacySourceV1")) {
+                } else if (call.method in setOf("verifyMigrationTargetV1", "cleanupLegacySourceV1", "verifyCompletedMigrationV1")) {
                     val input = args["expected_record"] as? ByteArray ?: problem("journal_corrupt")
                     if (input.size > RECORD_LIMIT) problem("journal_corrupt")
                     val snapshot = if (call.method == "cleanupLegacySourceV1") {
@@ -62,7 +70,9 @@ class JournalChannel internal constructor(context: Context, messenger: BinaryMes
                         }
                     } else null
                     try {
-                        val record = store.verifyMigrationTarget(binding, input.copyOf(), snapshot, migrationIo)
+                        val record = if (call.method == "verifyCompletedMigrationV1") {
+                            store.verifyCompletedMigration(binding, input.copyOf(), migrationIo)
+                        } else store.verifyMigrationTarget(binding, input.copyOf(), snapshot, migrationIo)
                         mapOf("status" to if (snapshot == null) "target_verified" else "source_absent", "record" to record)
                     } catch (error: JournalProblem) {
                         if (error.code != "journal_recovery_required") throw error

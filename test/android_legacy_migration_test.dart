@@ -318,4 +318,80 @@ void main() {
     );
     expect(calls, isEmpty);
   });
+  test(
+    'preflight uses only version, never a caller enabling flag or binding',
+    () async {
+      handler = (_) async => {'status': 'validation_namespace'};
+      await adapter.requireIsolatedExecution();
+      expect(calls.single.method, 'requireMigrationValidationV1');
+      expect(calls.single.arguments, {'api_version': 1});
+    },
+  );
+  for (final response in <Object?>[
+    null,
+    true,
+    {'status': 'stored'},
+    {'status': 'validation_namespace', 'allowed': true},
+  ]) {
+    test('malformed preflight ${response.runtimeType} is rejected', () async {
+      handler = (_) async => response;
+      await expectLater(
+        adapter.requireIsolatedExecution(),
+        issue(JournalIssue.nativeFailure),
+      );
+    });
+  }
+  test(
+    'completed verification uses separate method with exact validated bytes',
+    () async {
+      final complete = record.markLegacyCleanupComplete(
+        approval.metadata.sourceSha256,
+      );
+      final bytes = Uint8List.fromList(JournalCodec.encode(complete));
+      handler = (_) async => {'status': 'target_verified', 'record': bytes};
+      await adapter.verifyCompleted(binding, bytes);
+      expect(calls.single.method, 'verifyCompletedMigrationV1');
+      expect(calls.single.arguments, {
+        'api_version': 1,
+        'binding': binding.toJson(),
+        'expected_record': bytes,
+      });
+    },
+  );
+  test('completed verifier rejects pending, pending verifier rejects completed locally', () async {
+    await expectLater(
+      adapter.verifyCompleted(binding, expected),
+      issue(JournalIssue.illegalTransition),
+    );
+    final complete = record.markLegacyCleanupComplete(
+      approval.metadata.sourceSha256,
+    );
+    await expectLater(
+      adapter.verifyTarget(binding, JournalCodec.encode(complete)),
+      issue(JournalIssue.illegalTransition),
+    );
+    expect(calls, isEmpty);
+  });
+  test(
+    'completed verifier retains bounded recovery and exact record matching',
+    () async {
+      final bytes = Uint8List.fromList(
+        JournalCodec.encode(
+          record.markLegacyCleanupComplete(approval.metadata.sourceSha256),
+        ),
+      );
+      handler = (call) async => calls.length == 1
+          ? {'status': 'recovery_required'}
+          : {
+              'status': call.method == 'read' ? 'stored' : 'target_verified',
+              'record': bytes,
+            };
+      await adapter.verifyCompleted(binding, bytes);
+      expect(calls.map((c) => c.method), [
+        'verifyCompletedMigrationV1',
+        'read',
+        'verifyCompletedMigrationV1',
+      ]);
+    },
+  );
 }

@@ -309,6 +309,98 @@ failures; staged boundaries and force-stop recovery remain distinct from a kill
 during IO and from sudden power loss. Backup rules remain unchanged. Actual
 validation and remaining platform limits are recorded in Development Status.
 
+## C2c.3 isolated migration coordinator
+
+`LegacyMigrationCoordinator` composes the existing planner, `CommandJournal`
+transitions and `AndroidLegacyMigrationBackend`. It is opt-in and has no caller
+in main, auth, the live controller, startup/resume or account switching. Only
+fictional host/runtime fixtures implement its external context provider. Actual
+legacy migration and production activation remain disabled; this is not C3.
+
+The native `requireMigrationValidationV1` preflight accepts only `api_version`
+and checks the real Context package before context acquisition, journal reads
+(which can normalize duplicates), import or other migration mutation. Only
+`com.example.chantipoint.journalvalidation` succeeds. Neither a Dart boolean nor
+a request field enables normal-app execution. The separate native cleanup guard
+is retained. Host tests verify coordinator rejection before any IO/context; the
+Android harness tests the shared native guard against a normal-package Context
+wrapper and the actual preflight/composition in the isolated namespace. The
+normal application is not installed or launched for this validation.
+
+`LegacyMigrationContexts.acquire(binding, sourceBasename)` must obtain an external
+lease for the exact source and complete destination. The lease exposes immutable
+approval/trust and a synchronous `checkValid`: the provider must independently
+establish historical source approval, exclusive global source assignment and
+writer quiescence/fencing throughout the operation. Missing prerequisites return
+`prerequisitesRequired`; missing/unverified approval produces `bindingRequired`
+through the planner. Conflicting identities block; invalidation stops further
+mutations. An encrypted command, matching UUID/current project or server miss
+does not establish provenance. Every attempt/restart reacquires the context;
+approval is never reconstructed from persisted command metadata.
+
+| Outcome | Meaning |
+| --- | --- |
+| `noAction` | Planner found no import/cleanup work; no attendance confirmation or activation permission. Existing completed metadata gets a fresh exact-record barrier and source recheck. |
+| `bindingRequired` | External approval is missing or unverified; no import/cleanup. |
+| `prerequisitesRequired` | No operation lease with the required assignment/fencing was acquired. |
+| `invalidated` | Context ceased to be valid; submitted work is retained and must be reinspected. |
+| `blocked` | Conflicting/ambiguous/invalid evidence or CAS state; no terminal blocked-phase write is performed. |
+| `retryable` | IO/synchronization/lost-response uncertainty or context release failure; no durability attestation. Reestablish prerequisites and replan on retry. |
+| `completed` | Exact expected cleanup-completion record verified with a fresh native durability barrier and final observed source absence. Attendance phase is unchanged. |
+
+The bounded execution/restart sequence is:
+
+1. Native preflight, then queue by the derived SOURCE filename, then acquire the
+   external context. A static queue shares that filename across coordinator
+   instances/different environment, URL or Auth bindings in one Dart isolate.
+   It does not provide durable global assignment or cross-isolate/engine/process
+   fencing; those remain external provider obligations.
+2. Inspect source, read target and run the existing planner. Source observations
+   include exact snapshot identity. No-action/binding-required/blocked decisions
+   create no command and do not change journal phase.
+3. Import only via existing `importLegacy`, expected revision/key, original
+   approved command and metadata. Resume uses the complete existing record,
+   including later revision/independently validated confirmation. No RPC,
+   replacement key, timestamp conversion, compaction or confirmation is created.
+4. A reported failed import is reread once and compared against the COMPLETE
+   expected record. Exact readability alone is not durability: native cleanup
+   must establish its own fresh target barrier before deletion. Unchanged prior
+   state returns a failure; unexplained differences block. No blind repeat import
+   or highest-revision selection occurs inside the attempt.
+5. Existing checked cleanup freshly authenticates/synchronizes the exact pending
+   target, verifies snapshot/source relationship, checks unlink, synchronizes
+   directories and verifies absence. It also handles an already-deleted source.
+   Failed cleanup never permits cleanup-completion CAS in that attempt.
+6. Only after cleanup success, `markLegacyCleanupComplete` uses the pending
+   digest/revision/key. Reread once and compare the full expected completed
+   record. A reported failed completion CAS may already have committed; matching
+   readable bytes still require `verifyCompletedMigrationV1`. A failed barrier
+   returns retryable even if metadata is readable as complete. A new attempt can
+   reverify that completed record without importing/deleting again.
+7. The completed-record barrier is verification-only; pending cleanup eligibility
+   remains unchanged. A final source inspection rejects reappearing plaintext or
+   artifacts. Return the complete record, then release the operation context.
+
+The scoped Android channel checks context validity before and after EACH native
+call, including errors and internal duplicate-recovery calls. The storage wrapper
+also checks between `CommandJournal`'s internal read and CAS. Native work already
+submitted cannot be cancelled by a Dart timeout, disposal or channel detachment.
+The coordinator has no internal timeout/cancellation shortcut: it retains the
+source queue/context until every submitted future settles, then awaits release.
+A permanently lost reply leaves the attempt outstanding. Providers/callers must
+not release fencing because a caller-facing timeout elapsed; detached-engine or
+process-death recovery needs external worker-drain/durable ownership policy.
+Release errors remain unresolved; the external authority must prevent a new
+conflicting lease while prior ownership is uncertain.
+
+The supplied contexts only assert these conditions for fictional tests; they do
+not fence the unchanged legacy writer or implement production approval/global
+binding. Backup policy, approval issuance/reverification, multi-engine/process
+ownership and activation remain pending. Host simulations, staged boundaries,
+injected replies/errors and force-stop BETWEEN phases are distinct from process
+termination DURING native IO, kernel faults and power loss. Actual validation is
+recorded in Development Status; no power-loss durability is claimed.
+
 ## Native C2b implementation and activation boundary
 
 C2b implements Android Keystore AES-GCM and AtomicFile under

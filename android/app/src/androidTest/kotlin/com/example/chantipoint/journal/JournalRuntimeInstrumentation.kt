@@ -178,7 +178,7 @@ class JournalRuntimeInstrumentation : Instrumentation() {
         }
         if (call.method == "migrationFault") {
             val value = args["stage"] as String
-            check(value in setOf("target_sync", "delete", "source_sync"))
+            check(value in setOf("target_sync", "delete", "source_sync", "completed_sync"))
             migrationFault.set(value)
             return null
         }
@@ -189,6 +189,14 @@ class JournalRuntimeInstrumentation : Instrumentation() {
             try {
                 EncryptedJournalStore(normal).verifyMigrationTarget(binding, args["record"] as ByteArray, "0".repeat(64))
             } catch (error: JournalProblem) { return error.code == "journal_illegal_transition" }
+            return false
+        }
+        if (call.method == "normalPreflightRejected") {
+            val normal = object : ContextWrapper(targetContext) {
+                override fun getPackageName() = "com.example.chantipoint"
+            }
+            try { requireMigrationValidationNamespace(normal.packageName) }
+            catch (error: JournalProblem) { return error.code == "journal_illegal_transition" }
             return false
         }
         if (call.method == "legacyFixture") {

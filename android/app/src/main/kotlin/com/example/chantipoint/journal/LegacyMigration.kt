@@ -39,6 +39,20 @@ internal fun migrationObject(bytes: ByteArray): Map<*, *> {
     catch (_: Exception) { problem("journal_corrupt") }
 }
 
+/** Verification-only eligibility. This NEVER grants pending-source cleanup. */
+internal fun requireCompletedMigration(record: ByteArray, binding: SlotBinding) {
+    val header = JournalHeader.inspect(record, binding)
+    if (header.phase == "blocked") problem("journal_illegal_transition")
+    val metadata = header.envelope["migration"] as? Map<*, *> ?: problem("journal_illegal_transition")
+    exactFields(metadata, setOf("source_basename", "source_sha256", "legacy_owner", "binding_approval_ref", "plaintext_cleanup"))
+    if (metadata["plaintext_cleanup"] != "complete") problem("journal_illegal_transition")
+    if (metadata["source_basename"] != legacyBasename(binding) || metadata["legacy_owner"] != legacyOwner(binding)) {
+        problem("journal_identity_mismatch")
+    }
+    if (!Regex("^[0-9a-f]{64}$").matches(text(metadata["source_sha256"], 64))) problem("journal_corrupt")
+    text(metadata["binding_approval_ref"])
+}
+
 /** Narrow mechanical checks; the Dart codec remains the full state-machine authority. */
 internal class PendingLegacyTarget(val header: JournalHeader, val metadata: Map<*, *>) {
     companion object {

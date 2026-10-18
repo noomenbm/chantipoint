@@ -25,6 +25,8 @@ listed below are required, including NULL. Unexpected fields fail explicitly.
 | `inspectLegacySourceV1` | `api_version: 1`, `binding` | `{inspection_version: 1, binding, snapshot, basename, source: Uint8List or NULL, artifacts: [{suffix, bytes: Uint8List}]}` |
 | `verifyMigrationTargetV1` | `api_version: 1`, `binding`, `expected_record: Uint8List` | `{status: target_verified, record: Uint8List}` |
 | `cleanupLegacySourceV1` | `api_version: 1`, `binding`, `expected_record`, `source_snapshot` | `{status: source_absent, record: Uint8List}`; plaintext cleanup is validation-package-only. |
+| `requireMigrationValidationV1` | `api_version: 1` only | `{status: validation_namespace}`; real native package check, no filesystem/key access. |
+| `verifyCompletedMigrationV1` | `api_version: 1`, `binding`, `expected_record` | `{status: target_verified, record: Uint8List}`; completed metadata, verification only, validation namespace only. |
 
 When sidecars exist, `read` returns `{status: recovery_required}`. The adapter
 performs one inspection, complete Dart validation and, only if permitted, one
@@ -156,6 +158,27 @@ validation. Native descriptor-close failures were not injected. The first
 emulator startup was stopped at the C: disk threshold; validation ran only after
 resource recovery. See Development Status for measurements and remaining limits;
 these results do not establish power-loss durability.
+
+## C2c.3 coordinator extensions
+
+The isolated Dart coordinator uses native preflight before any import/read that
+could normalize artifacts. It cannot enable production execution with a flag.
+`verifyCompletedMigrationV1` separately checks completed metadata, binding and
+the exact fully Dart-validated record under existing locks, authenticates actual
+ciphertext, synchronizes the file/directories, then authenticates and compares
+the full record again. It creates no key, changes no state, deletes no source,
+and uses only existing C2b.1 duplicate recovery if needed. Pending-source cleanup
+continues to reject completed records. A readable completed record after a failed
+CAS never establishes a fresh successful durability claim without this barrier.
+
+`AndroidLegacyMigrationBackend` scopes the existing adapters through a channel
+that checks the external operation context around every async call, including
+error/recovery paths. There is no live application wiring or production context
+provider. See [Secure Command Journal](secure-command-journal.md#c2c3-isolated-migration-coordinator)
+for interfaces, outcomes, exact restart sequence, external lease lifetime and
+global writer/source-binding obligations. Runtime fixture controls remain solely
+in the isolated harness; the added `completed_sync` checkpoint is an injected
+pre-barrier error, not a kernel or power-loss test.
 
 ## Slots, keys and AAD
 

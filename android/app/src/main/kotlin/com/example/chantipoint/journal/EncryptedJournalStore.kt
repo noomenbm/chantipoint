@@ -74,6 +74,25 @@ internal class EncryptedJournalStore(context: Context) {
         }
     }
 
+    /** Separate, verification-only completed-record barrier. No source deletion. */
+    fun verifyCompletedMigration(binding: SlotBinding, expected: ByteArray,
+                                 io: LegacyMigrationIo = RealLegacyMigrationIo): ByteArray {
+        requireMigrationValidationNamespace(packageName)
+        requireCompletedMigration(expected, binding)
+        return locked { root, files ->
+            val key = existingKey(files.isNotEmpty())
+            val actual = readStored(root, binding, files, key) ?: problem("journal_command_conflict")
+            if (!MessageDigest.isEqual(actual, expected)) problem("journal_revision_conflict")
+            io.checkpoint("completed_sync")
+            try { FileInputStream(File(root, filename(binding))).use { it.fd.sync() } }
+            catch (_: Exception) { problem("journal_sync_failure") }
+            syncDirectory(root)
+            val verified = readStored(root, binding, inspectFiles(root), key) ?: problem("journal_storage_failure")
+            if (!MessageDigest.isEqual(verified, expected)) problem("journal_revision_conflict")
+            verified
+        }
+    }
+
     fun normalizeRecovery(binding: SlotBinding, snapshot: String, validatedRecord: ByteArray): ByteArray =
         locked { root, files ->
             val key = existingKey(files.isNotEmpty())

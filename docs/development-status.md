@@ -1,6 +1,88 @@
 # ChantiPoint Development Status
 
-Current slice: **M2.3c.C2c.2, isolated Android migration primitives**, based on
+Current slice: **M2.3c.C2c.3, isolated migration coordinator**, based on clean
+committed **`4fe2ab1`** on `feature/manual-attendance`.
+
+The opt-in coordinator composes the existing planner, journal import/completion
+transitions and native migration primitives. Native namespace preflight runs
+before context acquisition, reads or import. Normal-app execution is rejected;
+the independent cleanup gate remains validation-package-only. No production
+provider, actual migration, live writer/controller/auth/startup/resume wiring,
+RPC, v2 activation, GPS/UI, backup-policy or journal-format change is included.
+
+Each attempt acquires a fresh external context for the exact approved source,
+full destination binding, exclusive global assignment and writer fencing. Only
+fictional harness contexts are supplied. Context validity is checked across
+async steps, internal read/CAS and channel recovery calls, including errors.
+Queues serialize the derived source filename across coordinator instances and
+different bindings within one Dart isolate; durable global and cross-isolate/
+engine/process ownership remains an external integration duty.
+
+Import/retry compares complete records, preserves original legacy command/key/
+timestamp strings, and never selects a higher revision merely as success proof.
+Cleanup establishes a fresh target barrier and checked durable source absence
+before completion CAS. The new native completed-record barrier is verification
+only; pending cleanup eligibility is unchanged. Readable bytes following a failed
+CAS do not prove durability. Unexplained differences block; transient failures
+do not persist terminal blocked phase. Uncertain commands remain uncertain,
+confirmed receipts are retained, and no command is dispatched/compacted.
+
+Source queues/contexts outlive submitted work. Caller timeout/disposal does not
+cancel native IO or release fencing. An indefinitely lost reply stays unresolved;
+external restart/worker-drain/ownership policy is required. See
+[Secure Command Journal](secure-command-journal.md#c2c3-isolated-migration-coordinator)
+for interfaces, outcomes and the exact persistence/restart sequence, and
+[Android Journal Storage](android-journal-storage.md#c2c3-coordinator-extensions)
+for the two narrow native extensions.
+
+C2c.3 validation (2026-10-18):
+
+- `flutter analyze --no-pub`: passed, no issues after fixing eight brace-style
+  findings. Early focused tests exposed masked context-invalidation reporting;
+  the coordinator now rechecks validity on adapter error paths too. Two test
+  fixtures were corrected without changing settled planner/legacy rules: an
+  absent unrelated source is noAction, and the legacy decoder requires UTC `Z`.
+- Final `flutter test --no-pub --concurrency=1`: **792/792 passed**, zero failures
+  or skips (739 retained + 45 coordinator + 8 adapter-contract tests). This
+  includes the final source recheck after an already-completed record's barrier.
+  Host channel/storage failures and lost replies are simulations, not Android IO.
+- Both isolated app/test APKs built offline in **1 minute 28 seconds**, reusing
+  SDK/Gradle caches, one worker and the unchanged 1 GiB heap. Existing Java/Gradle/
+  Kotlin deprecation warnings were non-fatal. Package/instrumentation target
+  inspection confirmed only the isolated validation namespace before install.
+- Actual Android 17/API 37 x86_64, 16 KiB pages: **fresh 44/44; restart 9/9**,
+  zero failures, both `INSTRUMENTATION_CODE: -1`. All prior 36 fresh/6 restart
+  checks remain, including descriptor regression and conservative recovery.
+  Eight new fresh cases exercise actual coordinator composition, original
+  check-in/checkout records, independently validated fictional receipt,
+  source reappearance, namespace guard, and injected pending/completed failures.
+  Three new restart cases reestablish fictional external prerequisites for
+  source-present pending import, already-deleted pending import, and readable
+  completed metadata following a reported committed CAS failure plus failed
+  completed-record barrier. Complete original records are compared throughout.
+- Only the isolated app was force-stopped between phases, without data/key
+  clearing or reinstall. The original fictional key-loss check ran last. The
+  emulator was stopped after validation; no Gradle JVM or Docker remained.
+- Execution was sequential: host tests, offline build, then existing headless
+  Pixel_9/two cores/software graphics/no snapshots/no wipe. The image enforced
+  4 GiB guest RAM despite a 1.5 GiB request (MemTotal 4,007,032 KiB). Initial free
+  space: **11.28 GiB C: / 23.68 GiB E:**; pre-emulator RAM: **3.22 GiB**.
+  Monitored startup minimum was **8.73 GiB C:**; all later measured values stayed
+  at or above **8.60 GiB**, above the 5 GiB stop rule. Final: **11.14 GiB C: /
+  23.68 GiB E:** free, **3.45 GiB available RAM**. No downloads, destructive
+  cleanup, pagefile changes, Docker or hosted operations were needed.
+- `git diff --check` and new-file UTF-8/whitespace/newline checks passed.
+
+Staged boundaries, injected errors and force-stop between phases do not test
+termination during IO or kernel synchronization failures. Native close-failure
+injection, older AtomicFile behavior, multi-process stress, permanent key
+invalidation, OS reboot/power loss, physical/OEM devices and backup/device
+transfer remain unvalidated. No power-loss durability or production readiness
+is claimed. Production approval authority/reverification, durable source binding,
+writer retirement/fencing, cross-engine ownership/lost-reply recovery, reviewed
+backup exclusions and separately approved C3/activation remain outstanding.
+
+Previous slice: **M2.3c.C2c.2, isolated Android migration primitives**, based on
 clean committed `6bd7235`. Versioned inspection derives only the bound legacy
 filename in Android filesDir, returns bounded immutable observations and content
 snapshot identity, and rejects links/non-regular/unreadable/ambiguous sources.
