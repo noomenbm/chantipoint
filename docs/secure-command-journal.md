@@ -401,6 +401,119 @@ injected replies/errors and force-stop BETWEEN phases are distinct from process
 termination DURING native IO, kernel faults and power loss. Actual validation is
 recorded in Development Status; no power-loss durability is claimed.
 
+## C3.1 isolated attendance operation core
+
+`AttendanceOperationCoordinator` composes the existing format-2 commands,
+confirmations, `CommandJournal` and `JournalStorage`. It has no default adapters
+and no caller in main, auth, the live controller/screens or Android composition.
+Only fictional host implementations exercise it. The live legacy flow, hosted
+Supabase, journal format/state machine and migration coordinator are unchanged.
+
+`attendance_operation_transport.dart` defines three injectable boundaries:
+
+- `AttendanceOperationContext`: immutable full binding/generation identity,
+  current authorized-employee observation and asynchronous attempt release. The
+  issuer must distinguish same-user logout/relogin from the original generation.
+  Current UUID/session presence alone is insufficient. No production issuer,
+  durable ownership or legacy-writer fencing is supplied.
+- `AttendanceOperationTransport.dispatch(identity, command, replayOnly: ...)`:
+  original frozen command plus complete acknowledgement JSON or an explicit
+  validated replay-only miss. No typed-request reconstruction, receipt rebuilding
+  from WorkSession/AttendanceReceipt, automatic retry, key/clock/evidence
+  generation or standalone note save. A future adapter must bind credentials to
+  the submitted identity, not whichever account happens to be current later.
+  The returned future must represent local submitted work settling, not hide
+  continuing work behind an internal timeout. A settled error still does not
+  establish the server's outcome.
+- `AttendanceCanonicalReader.readSession(identity, sessionId)`: scoped current
+  server state of the acknowledged session, including closed sessions. It cannot
+  substitute an active-session-only lookup or fabricate state from the receipt.
+
+`submit` accepts only a fresh v2 intent in an absent/empty eligible slot. It
+persists `prepared`, then `may_have_sent`, through existing CAS before dispatch.
+An existing command is never overwritten. Exact duplicates cannot redispatch:
+pending ones return unresolved; confirmed ones may refresh only if this instance
+has matching verification evidence. A different command, including differing
+frozen request bytes, conflicts. Completed migration metadata can accompany an
+eligible v2 slot; pending metadata and all legacy commands remain gated.
+
+Dispatch uses the stored original command value: protocol, operation, key,
+`parameters_json`, all timestamp strings/evidence and final checkout note action/
+text survive unchanged. A validated complete `rpcV2` confirmation is persisted
+before any canonical read. The confirmation's original `data_json` string,
+including timestamp representations and JSON formatting, is retained. A canonical
+session may subsequently advance independently; it does not rewrite the receipt.
+
+`replay` is explicitly read-only against `may_have_sent`/`uncertain` v2 records.
+Only the outgoing replay flag changes. A miss does not clear the command,
+authorize a new key or initiate a mutating retry. Transport/malformed-response
+failures leave the existing transmission/uncertain phase intact; the core adds
+no terminal blocked phase or extra uncertainty CAS. `refresh` never dispatches.
+No method compacts, deletes, imports, marks migration cleanup or saves standalone
+employee notes. Final checkout note intent remains inside the frozen command.
+
+| Outcome/problem | Meaning and retained state |
+| --- | --- |
+| `confirmed` | Successful confirmation CAS, matching complete reread, then a canonical read of the correct session. Receipt stays confirmed; no compaction. |
+| `confirmedNeedsRefresh` / `canonicalUnavailable` | Confirmation is retained, but canonical read failed, returned null or the wrong session. Later explicit refresh can retry without resending attendance. |
+| `invalidated` | Stop further dispatch/refresh/publication. An already submitted valid receipt may still be finalized under the exception below. |
+| `gated` / `legacyCommand`, `migrationPending`, `blockedRecord` | Preserve the record; do not migrate, dispatch or replace it. |
+| `unresolved` / `pendingCommand` | Matching pending intent already exists; submit is not a retry API. |
+| `unresolved` / `commandConflict` | Existing frozen command differs; original evidence is retained. |
+| `unresolved` / `journalUnavailable` | Read/identity/codec failure, changed full target before refresh, or an unexpected contract failure. No absence/success is inferred; safe JournalIssue is retained where available. |
+| `unresolved` / `persistenceUncertain` | Prepare/transmission/confirmation persistence failed, returned a conflict or lacked successful CAS evidence. It may already have committed. No dispatch follows failed pre-send persistence; no refresh follows failed receipt persistence. |
+| `unresolved` / `recoveryRequired` | No eligible recovery state, restored prepared state, or confirmed state without this instance's matching successful-CAS evidence. No fresh durability claim, resend or compaction. |
+| `unresolved` / `transportUncertain` | Lost reply, timeout or other transport error; original command/key remain. |
+| `unresolved` / `replayMiss` | Explicit replay-only not_found; the original request may still commit. No confirmation/clear/new command follows. |
+| `unresolved` / `malformedAcknowledgement` | Invalid/incomplete/inconsistent receipt, unexpected mode/status, or an explicit miss on an initial mutation. No confirmation or canonical read. |
+| `unresolved` / `contextUnavailable` | Context identity could not be obtained, release failed, or the same context object was reused. No employee snapshot is exposed; external ownership may need resolution. Reuse cannot release the original attempt's ownership. |
+
+The approved post-invalidation exception is PRIVATE receipt-only finalization
+of a call submitted while its captured context was valid. The core validates the
+complete reply against that submitted command, then allows one exact confirmation
+CAS into that original slot. Its storage wrapper checks the COMPLETE prior record
+and replacement, binding, revision and key across CommandJournal's internal
+read/CAS gap. Even semantically equal but differently frozen parameters reject.
+It cannot dispatch/retry/refresh, change owner, or finalize another command.
+Reported receipt persistence failure remains unresolved, including matching
+readable confirmed bytes. Successful late finalization returns invalidated with
+no employee snapshot; no canonical read follows.
+
+All other async boundaries recheck the captured context, including internal
+pre-send read/CAS. Results expose snapshots only while that original generation
+is current; confirmed outcomes become invalidated when accessed after a change.
+Consumers must check at publication time and not cache a snapshot across epochs.
+This core contains no UI publisher or production auth listener.
+
+The full-binding queue is static across coordinator instances in ONE Dart
+isolate. It spans persistence, transport, receipt-only finalization, refresh and
+context release. Different full bindings do not share this queue. Caller timeout
+or disposal cannot cancel submitted work or release the queue/context early.
+An indefinitely unsettled future remains outstanding. Release failure is reported,
+but the core cannot establish external ownership release. Cross-isolate/engine/
+process/restart exclusion and durable global assignment remain unimplemented.
+Each context object is consumed once across instances in this isolate; in-flight
+or completed reuse is rejected without a second release. Weak tracking avoids
+retaining completed contexts. Auth currency remains observable for result checks;
+later explicit attempts require newly issued contexts.
+
+Successful CAS is trusted only under the existing JournalStorage contract.
+Per-instance volatile confirmation evidence permits bounded refresh retry after
+a successful CAS, always comparing the complete reread record. Reads alone never
+populate that evidence; failed transitions and mismatching refresh readbacks
+invalidate it. Canonical read failures retain it for refresh retry. A matching read after
+failed CAS is not durability proof. Restored or another-instance confirmed
+records without evidence remain recovery-required. There is no new native
+barrier, Android composition, restart or power-loss claim in C3.1.
+
+Future production composition still needs receipt-preserving frozen transport,
+real auth-generation and credential scoping, closed-session canonical reads,
+generic durable recovery, global ownership/fencing, approved migration provenance,
+deployment identity, backup policy, backend deployment and separate cutover
+approval. C2c.3's validation-only migration barriers are not generic C3 barriers.
+Actual host validation is recorded in Development Status; no Android validation
+was rerun for this slice.
+
 ## Native C2b implementation and activation boundary
 
 C2b implements Android Keystore AES-GCM and AtomicFile under

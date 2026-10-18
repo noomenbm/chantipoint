@@ -180,6 +180,20 @@ global writer/source-binding obligations. Runtime fixture controls remain solely
 in the isolated harness; the added `completed_sync` checkpoint is an injected
 pre-barrier error, not a kernel or power-loss test.
 
+## C3.1 remains host-only
+
+The isolated attendance operation core depends on `JournalStorage` but supplies
+no Android composition or new channel/native method. Existing migration-only
+barriers cannot establish durability for arbitrary C3 prepared/transmission/
+confirmation records. C3.1 treats failed CAS as unresolved, even when matching
+bytes are readable, and uses only volatile per-instance successful-confirmation
+evidence for refresh retries. A later native recovery integration is still needed.
+See [Secure Command Journal](secure-command-journal.md#c31-isolated-attendance-operation-core)
+for exact context, receipt-only finalization and serialization limits. C3.1 host
+simulations do not extend the Android/runtime validation results above. No APK
+build, emulator/native test, actual journal write or power-loss test was run for
+this slice; the live legacy controller and storage remain unchanged.
+
 ## Slots, keys and AAD
 
 Files live under `context.noBackupFilesDir/attendance_journal/` and are named

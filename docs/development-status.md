@@ -1,6 +1,71 @@
 # ChantiPoint Development Status
 
-Current slice: **M2.3c.C2c.3, isolated migration coordinator**, based on clean
+Current slice: **M2.3c.C3.1, isolated attendance operation coordinator core**,
+based on clean reviewed **`9d74ed4`** on `feature/manual-attendance`.
+
+The opt-in core reuses format-2 `JournalCommand`, `JournalConfirmation`,
+`CommandJournal` and `JournalStorage` without changing their schema/CAS rules.
+It defines injectable owner/generation contexts, frozen-command/full-receipt
+transport and canonical session reads; only fictional host fakes are supplied.
+No main/controller/screen/auth wiring, production Supabase transport, Android
+composition, migration execution, hosted/backend activation, GPS/UI, backup-policy
+or standalone-note-outbox work is included. Live legacy attendance is unchanged.
+
+Fresh v2 commands persist prepared and transmission phases before dispatch.
+Complete original acknowledgement JSON is validated and confirmed before any
+canonical read. Refresh failure retains the receipt and can retry refresh without
+resending attendance. Lost replies, replay-only misses, malformed responses,
+conflicts and storage uncertainty retain original commands/keys/request bytes.
+The core never compacts, clears, dispatches legacy commands, processes pending
+migration metadata or automatically retries a mutating RPC.
+
+The approved invalidation exception finalizes only a valid receipt for an already
+submitted operation, into its exact original binding/command/revision. Full prior
+record/replacement checks prevent key-only equivalence or retargeting. Old
+generations cannot initiate dispatch/refresh or expose employee snapshots;
+same-user relogin invalidates them too. Receipt persistence uncertainty stays
+unresolved; matching readable bytes are never promoted to durability proof.
+
+Full-binding queues serialize instances within one Dart isolate and outlive
+caller timeout/disposal, awaiting all submitted work and context release. They
+do not provide cross-binding, engine/process/restart or durable global ownership.
+Each context object is consumed once; in-flight/completed reuse is rejected
+without releasing the original attempt's ownership again.
+Volatile per-instance successful-confirmation evidence permits refresh retries;
+restored/other-instance confirmed records without that evidence require further
+recovery. No generic native durability barrier or restart guarantee is added.
+Interfaces, all outcomes and production prerequisites are documented in
+[Secure Command Journal](secure-command-journal.md#c31-isolated-attendance-operation-core)
+and [Android Journal Storage](android-journal-storage.md#c31-remains-host-only).
+
+C3.1 host validation:
+
+- `flutter test --no-pub --concurrency=1 test/attendance_operation_coordinator_test.dart`:
+  **76/76 passed**, zero failures/skips. Fictional tests cover frozen evidence,
+  timestamp/note/request/receipt JSON preservation; before/after-commit and
+  readback failures at all three persistence boundaries; refresh-only retries;
+  lost/timeout/malformed responses and replay misses; CAS/full-record conflicts;
+  current/queued/late invalidation and same-user relogin; timeout/disposal during
+  submitted persistence/transport; context reuse/release and unavailable storage;
+  cross-instance queue scope; legacy/migration gates and note-save exclusion.
+- `flutter analyze --no-pub`: passed, no issues. Initial style findings were
+  fixed. Original-command assertions compare complete frozen values rather than
+  object identity, since the existing record codec revalidates/decodes objects.
+- `flutter test --no-pub --concurrency=1`: **868/868 passed**, zero failures/skips
+  (792 retained plus 76 new), in approximately 1 minute 9 seconds.
+- `git diff --check` and new-file UTF-8/whitespace/newline checks passed.
+- C: initially **9.05 GiB**, E: **23.68 GiB** free. C: was **10.26 GiB** before
+  and after the final full suite; E: remained **23.68 GiB**. All measured
+  C: values stayed above the 5 GiB stop rule. Existing SDK/caches were reused;
+  no dependency resolution/download, Android build/emulator, Docker, hosted
+  operation, destructive cleanup or pagefile change was performed.
+
+These are host simulations, not actual durable/encrypted writes or new Android
+results. Real auth/credential adapters, provenance/source assignment, writer
+retirement/fencing, generic native recovery, reviewed backup handling, backend
+deployment, consumption/compaction and production activation remain gated.
+
+Previous slice: **M2.3c.C2c.3, isolated migration coordinator**, based on clean
 committed **`4fe2ab1`** on `feature/manual-attendance`.
 
 The opt-in coordinator composes the existing planner, journal import/completion
