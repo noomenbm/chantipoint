@@ -1,6 +1,13 @@
 # Android Encrypted Journal Storage — C2b / C2b.1 / C2c.2
 
 C2b implements the Android backend for the [format-2 journal](secure-command-journal.md).
+
+C5.2 reuses the existing phase-agnostic `verifyRecordV1` barrier to prove an exact
+empty tombstone after uncertain compaction or coordinator/app replacement. This
+adds no native API/storage/schema change. Full-byte comparison, existing locks,
+file/directory sync and authenticated readback are required; a plain empty read
+is insufficient. C5.2 validation is host-only: the new empty-recovery composition
+was not instrumented on Android and makes no power-loss durability claim.
 The Dart schema/state machine and live version-1 attendance flow are unchanged.
 MainActivity registers the channel; registration alone opens no journal files and
 creates no key. Actual legacy migration and coordinated activation remain pending.

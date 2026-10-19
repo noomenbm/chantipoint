@@ -1,4 +1,4 @@
-# C5.1 isolated employee attendance workflow
+# C5.1/C5.2 isolated employee attendance workflow
 
 This is an injectable, host-tested employee workflow and French screen, not a
 production cutover. `AuthGate`, main/application routes, the live factory screen
@@ -84,7 +84,8 @@ confirmed refresh; it never submits/replays. `Vérifier le pointage conservé`
 uses only C3 replay or explicit confirmed-record recovery. Replay preserves the
 original command/key/evidence and uses replay-only lookup; a miss stays unresolved.
 Prepared, blocked, legacy, pending-migration, unreadable and ambiguous states never
-authorize a fresh attendance command. There is no forced reset or cleanup control.
+authorize a fresh attendance command. There is no forced reset or evidence-delete
+control. C5.2 adds only the guarded verification step below.
 
 Permission dialogs may trigger unchanged auth-resume revalidation. An invalidated
 capture is abandoned. The employee is told to wait for authorization, explicitly
@@ -110,16 +111,40 @@ server failure. Existing auth, session and journal gates still apply. Tests cove
 both limits just below/at/above the boundary, unchanged French text, malformed
 Unicode, no truncation and correction followed by one successful fresh action.
 
-## Explicit C5.1 limits and next work
+## C5.2 confirmed-receipt consumption and next work
 
-The developer confirmed that **confirmed records stay retained and gated** in
-C5.1. The screen displays verified canonical data but does not compact the receipt
-or enable another attendance command over it. Initial check-in and manual checkout
-are both supported when the journal is empty and the canonical selection permits
-them; a consecutive check-in/checkout cycle after a retained confirmation waits
-for a later reviewed, serialized C3 consumption/compaction capability. Presentation
-must not attest consumption by directly calling storage primitives or discard
-unresolved evidence to enable a button.
+C5.1 intentionally retained receipts. C5.2 supplies the deferred coordinator
+capability. `Terminer la vérification` is available after canonical confirmation.
+It calls `consumeConfirmed`: core-owned durable proof freezes before joining the
+binding queue, current owner/generation and complete record are checked, and the
+exact acknowledged session is freshly read. Guarded CAS then replaces confirmed
+with an empty tombstone at revision + 1, followed by complete reread. The screen
+supplies no primitive booleans and deletes no files. A queued duplicate cannot
+consume a newer command. Submitted work retains ownership through settlement.
+
+An uncertain write may leave confirmation OR empty state; neither rollback nor
+cleanup success is inferred. `Actualiser le pointage` determines the stored phase.
+Confirmed state with lost proof needs confirmed recovery then explicit consumption.
+Unproved empty state offers `Réessayer la vérification sur cet appareil`: exact-byte
+file/directory sync, authenticated readback and exact reread via `recoverEmpty`.
+A missing/failed verifier or changed record keeps actions gated. Local failed
+attempts accept only their exact expected tombstone, never a newer-looking record.
+This proves CURRENT empty state, not historical success of the failed attempt.
+
+After proven consumption/recovery, a fresh context in the same captured generation
+performs an owner-scoped active SELECT via coordinator `readActive`. The binding
+queue and context cover the whole read and journal recheck. No receipt or replay
+miss supplies the active/no-active answer. Failed reads and changed known sessions
+keep actions disabled. The fictional full cycle reaches revisions 3 (check-in
+confirmed), 4 (consumed), 7 (checkout confirmed), 8 (consumed), with two dispatches.
+
+Proof and original failed-attempt receipt retention are volatile and per instance.
+A replacement coordinator/app must verify persisted empty state explicitly before
+selection/submission. Known disappearance is blocked; after restart, fresh absence
+cannot be distinguished from out-of-contract data deletion without a durable
+inventory. Key/device/data loss and arbitrary rollback remain outside existing
+guarantees. The queue is isolate-local; production fencing/writer retirement and
+durable provenance remain prerequisites. No schema or native API changed.
 
 Standalone note saving is deferred. Its next slice must scope the save to the
 original authorized owner/generation/session, retain uncertain-save state through
@@ -129,15 +154,15 @@ outside the attendance outbox. Atomic immutable final checkout notes are support
 now; there is no standalone Save button.
 
 Other pre-cutover gates remain: production active-session adapter and auth/session
-notification composition, reviewed confirmation consumption, trusted legacy
+notification composition, trusted legacy
 provenance/assignment and coordinated writer retirement/fencing, backup/transfer
 policy, approved deployment/activation, privacy approval and successful native fix
 validation. C4's actual API 37 grant/approximate runs returned timeout without a
 fix. C5 widget tests do not close that gap or test live auth-resume composition.
 
 There are no notifications, timers, automatic checkout, background monitoring,
-legacy migration, fallback RPCs, new dependencies or Android changes in C5.1.
-Android UI smoke testing was not performed for this slice; existing native C4
+legacy migration, fallback RPCs, new dependencies or Android changes in C5.2.
+Android UI/storage testing was not performed for this slice; existing native C4
 observations are preserved rather than relabelled as C5 validation.
 
 ## Bounded local Git audit

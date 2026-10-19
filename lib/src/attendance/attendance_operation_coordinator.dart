@@ -12,6 +12,9 @@ import 'journal/journal_verifier.dart';
 enum AttendanceOperationOutcome {
   confirmed,
   confirmedNeedsRefresh,
+  consumed,
+  emptyVerified,
+  ready,
   invalidated,
   gated,
   unresolved,
@@ -31,6 +34,8 @@ enum AttendanceOperationProblem {
   malformedAcknowledgement,
   canonicalUnavailable,
   contextUnavailable,
+  consumptionUncertain,
+  emptyRecoveryRequired,
 }
 
 final class AttendanceOperationSnapshot {
@@ -62,6 +67,9 @@ final class AttendanceOperationResult {
           const {
             AttendanceOperationOutcome.confirmed,
             AttendanceOperationOutcome.confirmedNeedsRefresh,
+            AttendanceOperationOutcome.consumed,
+            AttendanceOperationOutcome.emptyVerified,
+            AttendanceOperationOutcome.ready,
           }.contains(_outcome)
       ? AttendanceOperationOutcome.invalidated
       : _outcome;
@@ -69,7 +77,7 @@ final class AttendanceOperationResult {
 
 /// Isolated C3.1 core. Dependencies have no defaults or production composition.
 /// The static full-binding queue covers all instances in THIS Dart isolate only.
-/// No cross-isolate/process/restart ownership, migration, compaction, timers or
+/// No cross-isolate/process/restart ownership, migration, timers or
 /// live lifecycle wiring. A caller timeout/disposal never cancels this future.
 class AttendanceOperationCoordinator {
   AttendanceOperationCoordinator({
@@ -92,6 +100,11 @@ class AttendanceOperationCoordinator {
   // Never restart proof by itself: failed transitions/mismatching refresh reads
   // invalidate it. Reads alone never populate it; canonical failures retain it.
   final _confirmed = <String, List<int>>{};
+  final _emptyProof = <String, List<int>>{};
+  // Keep the complete original receipt through uncertain compaction. Volatile;
+  // after restart, exact tombstone verification proves STATE, not this attempt.
+  final _consuming = <String, JournalRecord>{};
+  final _seenSlots = <String>{};
 
   Future<AttendanceOperationResult> submit(
     AttendanceOperationContext context,
@@ -113,6 +126,9 @@ class AttendanceOperationCoordinator {
           : _unresolved(owner, AttendanceOperationProblem.pendingCommand);
     }
     final before = current ?? JournalRecord.absent(owner.identity.binding);
+    final emptyGate = _emptyGate(owner, current);
+    if (emptyGate != null) return emptyGate;
+    _emptyProof.remove(owner.key);
     final prepared = before.prepare(command);
     var issue = await _transition(
       owner,
@@ -241,6 +257,231 @@ class AttendanceOperationCoordinator {
     }
   }
 
+  /// Explicit receipt consumption. Only this core can establish the primitive's
+  /// attestations: exact durable confirmation AND a fresh canonical read of its
+  /// acknowledged session. No arbitrary session/boolean enters this API.
+  Future<AttendanceOperationResult> consumeConfirmed(
+    AttendanceOperationContext context,
+  ) {
+    List<int>? requested;
+    try {
+      final proof = _confirmed[context.identity.binding.storageIdentity];
+      if (proof != null) requested = List<int>.unmodifiable(proof);
+    } catch (_) {
+      // _run still owns malformed-context cleanup.
+    }
+    // Freeze core-issued consumption authority BEFORE joining the queue. An
+    // overlapping request must never consume a newer command queued ahead of it.
+    return _run(context, (owner) async {
+      final read = await _read(owner);
+      final gate = _gate(owner, read);
+      if (gate != null) return gate;
+      final record = read.record;
+      if (record?.phase == JournalPhase.empty || record == null) {
+        return _unresolved(
+          owner,
+          AttendanceOperationProblem.emptyRecoveryRequired,
+        );
+      }
+      if (record.phase != JournalPhase.confirmed) {
+        return _unresolved(owner, AttendanceOperationProblem.pendingCommand);
+      }
+      if (requested == null) {
+        return _unresolved(owner, AttendanceOperationProblem.recoveryRequired);
+      }
+      if (!_bytesEqual(requested, JournalCodec.encode(record))) {
+        return _unresolved(owner, AttendanceOperationProblem.commandConflict);
+      }
+      final previous = _consuming[owner.key];
+      if (previous != null && !_sameRecord(previous, record)) {
+        return _unresolved(owner, AttendanceOperationProblem.commandConflict);
+      }
+      final refreshed = await _refresh(owner, record);
+      if (refreshed.outcome != AttendanceOperationOutcome.confirmed) {
+        return refreshed;
+      }
+      owner.check();
+      final next = record.compactConfirmed(
+        canonicalStateVerified: true,
+        confirmationConsumed: true,
+      );
+      _consuming[owner.key] = record;
+      _emptyProof.remove(owner.key);
+      final JournalIssue? issue;
+      try {
+        issue = await _transition(
+          owner,
+          record,
+          next,
+          (journal) => journal.compactConfirmed(
+            owner.identity.binding,
+            expectedRevision: record.revision,
+            expectedKey: record.command!.key,
+            canonicalStateVerified: true,
+            confirmationConsumed: true,
+          ),
+          owner.check,
+        );
+      } finally {
+        _confirmed.remove(owner.key);
+      }
+      if (issue != null) {
+        return _unresolved(
+          owner,
+          AttendanceOperationProblem.consumptionUncertain,
+          journalIssue: issue,
+        );
+      }
+      // CAS includes native durability/readback, followed by an independent full
+      // reread before this attempt is allowed to publish consumption completion.
+      final after = await _read(owner);
+      if (after.issue != null || !_sameRecord(after.record, next)) {
+        return _unresolved(
+          owner,
+          AttendanceOperationProblem.consumptionUncertain,
+          journalIssue: after.issue ?? JournalIssue.revisionConflict,
+        );
+      }
+      _emptyProof[owner.key] = JournalCodec.encode(next);
+      _consuming.remove(owner.key);
+      return AttendanceOperationResult._(
+        AttendanceOperationOutcome.consumed,
+        owner,
+        snapshot: AttendanceOperationSnapshot(next, null),
+      );
+    });
+  }
+
+  /// Explicit recovery of CURRENT empty state, not retrospective proof that an
+  /// earlier failed cleanup succeeded. Never writes or consumes another record.
+  Future<AttendanceOperationResult> recoverEmpty(
+    AttendanceOperationContext context,
+  ) => _run(context, (owner) async {
+    final stored = await _readRecoveryBytes(owner);
+    final read = stored.issue != null
+        ? JournalReadResult.blocked(stored.issue!)
+        : stored.bytes == null
+        ? const JournalReadResult.absent()
+        : JournalCodec.decode(stored.bytes!, owner.identity.binding);
+    final gate = _gate(owner, read);
+    if (gate != null) return gate;
+    final record = read.record;
+    if (record?.phase != JournalPhase.empty || verifier == null) {
+      return _unresolved(
+        owner,
+        AttendanceOperationProblem.emptyRecoveryRequired,
+      );
+    }
+    _emptyProof.remove(owner.key);
+    final original = _consuming[owner.key];
+    if (original != null &&
+        !_sameRecord(
+          record,
+          original.compactConfirmed(
+            canonicalStateVerified: true,
+            confirmationConsumed: true,
+          ),
+        )) {
+      return _unresolved(owner, AttendanceOperationProblem.commandConflict);
+    }
+    final expected = List<int>.unmodifiable(stored.bytes!);
+    JournalIssue? issue;
+    try {
+      owner.check();
+      issue = await verifier!.verify(owner.identity.binding, expected);
+    } catch (_) {
+      issue = JournalIssue.nativeFailure;
+    }
+    owner.check();
+    if (issue != null) {
+      return _unresolved(
+        owner,
+        AttendanceOperationProblem.consumptionUncertain,
+        journalIssue: issue,
+      );
+    }
+    final after = await _readRecoveryBytes(owner);
+    if (after.issue != null ||
+        after.bytes == null ||
+        !_bytesEqual(expected, after.bytes!)) {
+      return _unresolved(
+        owner,
+        AttendanceOperationProblem.consumptionUncertain,
+        journalIssue: after.issue ?? JournalIssue.revisionConflict,
+      );
+    }
+    _emptyProof[owner.key] = JournalCodec.encode(record!);
+    _consuming.remove(owner.key);
+    _confirmed.remove(owner.key);
+    return AttendanceOperationResult._(
+      AttendanceOperationOutcome.emptyVerified,
+      owner,
+      snapshot: AttendanceOperationSnapshot(record, null),
+    );
+  });
+
+  /// Selection and journal gating share the binding queue and context lifetime.
+  /// A consumed receipt never supplies the active/no-active answer.
+  Future<AttendanceOperationResult> readActive(
+    AttendanceOperationContext context,
+    AttendanceActiveSessionQuery query,
+  ) => _run(context, (owner) async {
+    final read = await _read(owner);
+    final gate = _gate(owner, read);
+    if (gate != null) return gate;
+    if (read.record?.command != null) {
+      return _unresolved(owner, AttendanceOperationProblem.pendingCommand);
+    }
+    final emptyGate = _emptyGate(owner, read.record);
+    if (emptyGate != null) return emptyGate;
+    WorkSession? active;
+    try {
+      owner.check();
+      active = await query.readActiveSession(owner.identity);
+    } catch (_) {
+      owner.check();
+      return _unresolved(
+        owner,
+        AttendanceOperationProblem.canonicalUnavailable,
+      );
+    }
+    owner.check();
+    if (active != null && !active.isActive) {
+      return _unresolved(
+        owner,
+        AttendanceOperationProblem.canonicalUnavailable,
+      );
+    }
+    final after = await _read(owner);
+    if (after.issue != null || !_sameRecord(after.record, read.record)) {
+      _emptyProof.remove(owner.key);
+      return _unresolved(
+        owner,
+        AttendanceOperationProblem.journalUnavailable,
+        journalIssue: after.issue ?? JournalIssue.revisionConflict,
+      );
+    }
+    return AttendanceOperationResult._(
+      AttendanceOperationOutcome.ready,
+      owner,
+      snapshot: AttendanceOperationSnapshot(
+        read.record ?? JournalRecord.absent(owner.identity.binding),
+        active,
+      ),
+    );
+  });
+
+  AttendanceOperationResult? _emptyGate(_Owner owner, JournalRecord? record) {
+    if (record == null && !_seenSlots.contains(owner.key)) return null;
+    final proof = _emptyProof[owner.key];
+    if (record != null &&
+        proof != null &&
+        _bytesEqual(proof, JournalCodec.encode(record))) {
+      return null;
+    }
+    return _unresolved(owner, AttendanceOperationProblem.emptyRecoveryRequired);
+  }
+
   Future<AttendanceOperationResult> _dispatch(
     _Owner owner,
     JournalRecord submitted, {
@@ -367,6 +608,7 @@ class AttendanceOperationCoordinator {
       );
     }
     final record = read.record;
+    if (record != null) _seenSlots.add(owner.key);
     if (record?.migration?.plaintextCleanupComplete == false) {
       return _gated(owner, AttendanceOperationProblem.migrationPending);
     }

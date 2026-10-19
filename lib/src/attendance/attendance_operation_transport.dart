@@ -54,3 +54,10 @@ abstract interface class AttendanceCanonicalReader {
     String sessionId,
   );
 }
+
+/// Injected owner/environment/generation-scoped active SELECT. Null is an
+/// authorized empty selection, never inferred from a receipt or replay miss.
+/// No production adapter is supplied by this port.
+abstract interface class AttendanceActiveSessionQuery {
+  Future<WorkSession?> readActiveSession(AttendanceOperationIdentity identity);
+}

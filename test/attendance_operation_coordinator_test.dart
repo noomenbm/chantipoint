@@ -9,6 +9,7 @@ import 'package:chantipoint/src/attendance/journal/command_journal.dart';
 import 'package:chantipoint/src/attendance/journal/journal_command.dart';
 import 'package:chantipoint/src/attendance/journal/journal_json.dart';
 import 'package:chantipoint/src/attendance/journal/journal_record.dart';
+import 'package:chantipoint/src/attendance/journal/journal_verifier.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fake_attendance_operation_ports.dart';
@@ -994,7 +995,21 @@ void main() {
           confirmationConsumed: true,
         );
     h.inject(tombstone);
-    final result = await h.coordinator.submit(
+    final coordinator = AttendanceOperationCoordinator(
+      storage: h.storage,
+      transport: h.transport,
+      canonical: h.canonical,
+      verifier: _TombstoneVerifier(tombstone),
+    );
+    expect(
+      (await coordinator.submit(h.issuer.context(), journalCommand())).problem,
+      AttendanceOperationProblem.emptyRecoveryRequired,
+    );
+    expect(
+      (await coordinator.recoverEmpty(h.issuer.context())).outcome,
+      AttendanceOperationOutcome.emptyVerified,
+    );
+    final result = await coordinator.submit(
       h.issuer.context(),
       journalCommand(),
     );
@@ -1023,6 +1038,17 @@ void main() {
       expect(h.events, isEmpty);
     },
   );
+}
+
+class _TombstoneVerifier implements JournalVerifier {
+  _TombstoneVerifier(this.original);
+  final JournalRecord original;
+  @override
+  Future<JournalIssue?> verify(JournalBinding binding, List<int> bytes) async {
+    expect(binding.matches(original.binding), isTrue);
+    expect(bytes, JournalCodec.encode(original));
+    return null;
+  }
 }
 
 class _UnavailableContext implements AttendanceOperationContext {

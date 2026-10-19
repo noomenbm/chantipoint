@@ -248,13 +248,25 @@ class _EmployeeAttendanceScreenState extends State<EmployeeAttendanceScreen> {
                         label: const Text('Pointer une entrée'),
                       ),
                     ],
+                    if (workflow.canConsume) ...[
+                      const SizedBox(height: 12),
+                      FilledButton.tonal(
+                        onPressed: workflow.consume,
+                        child: const Text('Terminer la vérification'),
+                      ),
+                    ],
                     if (state.recovery != AttendanceRecoveryAction.none) ...[
                       const SizedBox(height: 12),
                       FilledButton.tonal(
                         onPressed: workflow.canRecover
                             ? workflow.recover
                             : null,
-                        child: const Text('Vérifier le pointage conservé'),
+                        child: Text(
+                          state.recovery ==
+                                  AttendanceRecoveryAction.recoverEmpty
+                              ? 'Réessayer la vérification sur cet appareil'
+                              : 'Vérifier le pointage conservé',
+                        ),
                       ),
                     ],
                     const SizedBox(height: 12),
@@ -279,6 +291,12 @@ String _message(EmployeeAttendanceStatus status) => switch (status) {
   EmployeeAttendanceStatus.ready => 'Votre pointage est à jour.',
   EmployeeAttendanceStatus.invalidInput =>
     'Corrigez la saisie avant de pointer.',
+  EmployeeAttendanceStatus.consumingConfirmation =>
+    'Finalisation de la vérification sur cet appareil…',
+  EmployeeAttendanceStatus.consumptionUnresolved =>
+    'La vérification sur cet appareil reste incertaine. Actualisez puis réessayez '
+        'la vérification avant un nouveau pointage. Aucun nouveau pointage '
+        'n’est autorisé pour le moment.',
   EmployeeAttendanceStatus.acquiringLocation =>
     'Recherche ponctuelle de la position… Une position indisponible ne signifie '
         'pas que le pointage a échoué.',

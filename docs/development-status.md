@@ -1,6 +1,53 @@
 # ChantiPoint Development Status
 
-Current slice: **M2.3c.C5.1, isolated French employee workflow and screen**,
+Current slice: **M2.3c.C5.2, safe confirmed-receipt consumption**, based on clean
+**`e800cee90d6a500065fe6c8c6d0a810701d81655`**, branch
+`feature/manual-attendance`.
+
+The isolated screen now offers `Terminer la vérification`. The shared coordinator
+requires its own exact durable confirmation evidence, current owner/generation,
+fresh scoped acknowledged-session read and full-record/revision/key guarded CAS
+before replacing confirmed with an empty tombstone. A subsequent fresh authorized
+active SELECT decides the next action. The fictional check-in -> consume ->
+checkout -> consume cycle reaches revisions **3/4/7/8**, with two dispatches.
+Consumption authority freezes before joining the queue; a duplicate cannot consume
+a newer queued command. No UI booleans, direct deletion or new native API/schema.
+
+Failed compaction may have committed. Complete original receipt evidence is kept
+in memory, and readable empty state alone stays gated for both selection and new
+submit. Explicit `recoverEmpty` requires the existing exact-record sync/readback
+barrier and exact reread; after replacement/restart it proves current empty state,
+not historical success of a failed attempt. Confirmed state lacking proof uses
+confirmed recovery. Changed/ambiguous records and missing/failed verifiers remain
+blocked. Known disappearance is blocked in-process; data/key/device loss, arbitrary
+rollback and unknown deletion after restart remain outside existing guarantees.
+
+C5.2 validation (2026-10-19):
+
+- **247/247 focused tests passed** across six coordinator/recovery/workflow/UI
+  files. **54 new tests:** 37 core fault/race tests and 17 workflow/widget tests.
+- Full `flutter test --no-pub --concurrency=1`: **1301/1301 passed**, zero failures
+  or skips, about 1m 15s (1247 baseline plus 54 new). Analysis: no issues.
+- `git diff --check` and untracked-file whitespace/newline checks passed.
+- Initial C:/E: **10.39/23.66 GiB**, available RAM **0.62 GiB**. During validation
+  C: sampled at **10.28 GiB**; after validation **10.38/23.66 GiB**, RAM **2.50 GiB**.
+  The existing 5 GiB stop rule was respected. Tests/analysis stayed sequential;
+  emulator, Docker and Gradle remained stopped. No downloads or Android build.
+
+This is host evidence only. No new Android runtime/instrumentation, power-loss,
+successful native-fix or live auth/resume claim. The unchanged generic native
+barrier supports format-2 empty records by source inspection; the new composition
+was not runtime-tested. Cross-isolate/process ownership, durable production
+provenance/legacy-writer retirement and fencing, backup policy, active-session and
+auth-notification production composition, client/privacy approvals and hosted v2
+deployment/activation remain pre-cutover gates. Standalone note saves remain
+deferred. No preview/demo APK, live-controller change or production route was added.
+
+All changes remain unstaged/uncommitted for review. See
+[Employee Workflow](employee-attendance-workflow.md) and
+[Secure Command Journal](secure-command-journal.md#c52-serialized-confirmation-consumption).
+
+Previous slice: **M2.3c.C5.1, isolated French employee workflow and screen**,
 based on clean **`fb765edc015bceead730fb90240508a4a5c8721b`**, branch
 `feature/manual-attendance`.
 

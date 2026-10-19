@@ -17,11 +17,13 @@ import 'journal/journal_record.dart';
 /// reject stale/wrong-owner results. Null means an authorized empty selection.
 /// The synchronous observation checks the ORIGINAL checkout session; it must
 /// never establish authorization merely from matching session UUIDs.
-abstract interface class AttendanceActiveSessionReader implements Listenable {
+abstract interface class AttendanceActiveSessionReader
+    implements Listenable, AttendanceActiveSessionQuery {
   /// Monotonic revision for changes known outside an in-flight read. A delayed
   /// query cannot overwrite a newer observation. Reading alone does not advance
   /// this revision; it establishes no authorization or backend truth itself.
   int get revision;
+  @override
   Future<WorkSession?> readActiveSession(AttendanceOperationIdentity identity);
   bool isSessionCurrent(AttendanceOperationIdentity identity, String sessionId);
 }
@@ -38,6 +40,8 @@ enum EmployeeAttendanceStatus {
   refreshUnavailable,
   confirmedNeedsRefresh,
   invalidInput,
+  consumingConfirmation,
+  consumptionUnresolved,
 }
 
 enum AttendanceInputError {
@@ -99,7 +103,7 @@ AttendanceInputError? validateAttendanceInput({
   }
 }
 
-enum AttendanceRecoveryAction { none, replay, recoverConfirmed }
+enum AttendanceRecoveryAction { none, replay, recoverConfirmed, recoverEmpty }
 
 final class EmployeeAttendanceState {
   const EmployeeAttendanceState(
@@ -118,7 +122,7 @@ final class EmployeeAttendanceState {
 }
 
 /// Isolated C5.1 presentation. No production factory, HTTP/auth fallback, file
-/// migration, journal compaction or live navigation. One instance per route;
+/// migration, direct journal compaction or live navigation. One instance per route;
 /// coordinator/auth/storage lifetimes remain outside that route.
 final class EmployeeAttendanceWorkflow extends ChangeNotifier {
   EmployeeAttendanceWorkflow({
@@ -173,6 +177,10 @@ final class EmployeeAttendanceWorkflow extends ChangeNotifier {
       }.contains(state.status);
   bool get canRecover =>
       !_disposed && !_busy && state.recovery != AttendanceRecoveryAction.none;
+  bool get canConsume =>
+      !_disposed &&
+      !_busy &&
+      state.status == EmployeeAttendanceStatus.confirmed;
 
   void _authorizationChanged() {
     if (_disposed) return;
@@ -270,12 +278,43 @@ final class EmployeeAttendanceWorkflow extends ChangeNotifier {
   /// C3 proof; restart recovery is a separate explicit control.
   Future<void> refresh() async {
     if (!_begin()) return;
+    try {
+      await _refreshSelection();
+    } finally {
+      _finish();
+    }
+  }
+
+  Future<void> _refreshSelection({
+    AttendanceOperationIdentity? expected,
+    int? expectedSessionRevision,
+  }) async {
+    if (_disposed) return;
     AttendanceOperationContext? context;
     var transferred = false;
     _emptyJournal = false;
     try {
       context = issueContext();
       if (!_adopt(context)) return;
+      if (expected != null &&
+          (expected.generation != context.identity.generation ||
+              !expected.binding.matches(context.identity.binding))) {
+        _set(
+          const EmployeeAttendanceState(
+            EmployeeAttendanceStatus.authorizationUnavailable,
+          ),
+        );
+        return;
+      }
+      if (expectedSessionRevision != null &&
+          expectedSessionRevision != activeSessions.revision) {
+        _set(
+          const EmployeeAttendanceState(
+            EmployeeAttendanceStatus.refreshUnavailable,
+          ),
+        );
+        return;
+      }
       _set(const EmployeeAttendanceState(EmployeeAttendanceStatus.loading));
       final read = await CommandJournal(coordinator.storage)
           .read(context.identity.binding);
@@ -296,20 +335,8 @@ final class EmployeeAttendanceWorkflow extends ChangeNotifier {
           ),
         );
       } else {
-        final session = await activeSessions.readActiveSession(
-          context.identity,
-        );
-        if (!_visible(context)) return;
-        if (session != null && !session.isActive) {
-          throw StateError('Invalid active-session selection');
-        }
-        _emptyJournal = true;
-        _set(
-          EmployeeAttendanceState(
-            EmployeeAttendanceStatus.ready,
-            session: session,
-          ),
-        );
+        transferred = true;
+        _apply(await coordinator.readActive(context, activeSessions), context);
       }
     } catch (_) {
       if (context == null) {
@@ -322,6 +349,69 @@ final class EmployeeAttendanceWorkflow extends ChangeNotifier {
         _set(
           const EmployeeAttendanceState(
             EmployeeAttendanceStatus.refreshUnavailable,
+          ),
+        );
+      }
+    } finally {
+      if (context != null && !transferred) await _release(context);
+    }
+  }
+
+  Future<void> consume() async {
+    if (!canConsume || !_begin()) return;
+    AttendanceOperationContext? context;
+    var transferred = false;
+    try {
+      final original = _viewIdentity!;
+      final originalRevision = _viewSessionRevision;
+      context = issueContext();
+      if (!_adopt(context)) return;
+      if (original.generation != context.identity.generation ||
+          !original.binding.matches(context.identity.binding)) {
+        _set(
+          const EmployeeAttendanceState(
+            EmployeeAttendanceStatus.authorizationUnavailable,
+          ),
+        );
+        return;
+      }
+      if (originalRevision != activeSessions.revision) {
+        _set(
+          const EmployeeAttendanceState(
+            EmployeeAttendanceStatus.refreshUnavailable,
+          ),
+        );
+        return;
+      }
+      final revision = _viewSessionRevision;
+      _emptyJournal = false;
+      _set(
+        const EmployeeAttendanceState(
+          EmployeeAttendanceStatus.consumingConfirmation,
+        ),
+      );
+      transferred = true;
+      final result = await coordinator.consumeConfirmed(context);
+      if (!_visible(context) || !result.isCurrent) return;
+      if (result.outcome == AttendanceOperationOutcome.consumed) {
+        await _refreshSelection(
+          expected: context.identity,
+          expectedSessionRevision: revision,
+        );
+      } else {
+        _apply(result, context);
+      }
+    } catch (_) {
+      if (context == null) {
+        _set(
+          const EmployeeAttendanceState(
+            EmployeeAttendanceStatus.authorizationUnavailable,
+          ),
+        );
+      } else if (_visible(context)) {
+        _set(
+          const EmployeeAttendanceState(
+            EmployeeAttendanceStatus.consumptionUnresolved,
           ),
         );
       }
@@ -504,20 +594,52 @@ final class EmployeeAttendanceWorkflow extends ChangeNotifier {
     AttendanceOperationContext? context;
     var transferred = false;
     try {
+      final original = _viewIdentity!;
+      final originalRevision = _viewSessionRevision;
       context = issueContext();
       if (!_adopt(context)) return;
+      if (original.generation != context.identity.generation ||
+          !original.binding.matches(context.identity.binding)) {
+        _set(
+          const EmployeeAttendanceState(
+            EmployeeAttendanceStatus.authorizationUnavailable,
+          ),
+        );
+        return;
+      }
+      if (originalRevision != activeSessions.revision) {
+        _set(
+          const EmployeeAttendanceState(
+            EmployeeAttendanceStatus.refreshUnavailable,
+          ),
+        );
+        return;
+      }
       _set(
         const EmployeeAttendanceState(
           EmployeeAttendanceStatus.awaitingConfirmation,
         ),
       );
       transferred = true;
-      _apply(
-        await (recovery == AttendanceRecoveryAction.recoverConfirmed
-            ? coordinator.recoverConfirmed(context)
-            : coordinator.replay(context)),
-        context,
-      );
+      final revision = _viewSessionRevision;
+      final result = await switch (recovery) {
+        AttendanceRecoveryAction.recoverConfirmed =>
+          coordinator.recoverConfirmed(context),
+        AttendanceRecoveryAction.recoverEmpty => coordinator.recoverEmpty(
+          context,
+        ),
+        _ => coordinator.replay(context),
+      };
+      if (_visible(context) &&
+          result.isCurrent &&
+          result.outcome == AttendanceOperationOutcome.emptyVerified) {
+        await _refreshSelection(
+          expected: context.identity,
+          expectedSessionRevision: revision,
+        );
+      } else {
+        _apply(result, context);
+      }
     } catch (_) {
       _set(
         const EmployeeAttendanceState(
@@ -548,15 +670,45 @@ final class EmployeeAttendanceWorkflow extends ChangeNotifier {
       return;
     }
     final snapshot = result.snapshot;
-    if (result.outcome == AttendanceOperationOutcome.confirmed &&
+    if (result.outcome == AttendanceOperationOutcome.ready &&
+        snapshot != null) {
+      _emptyJournal = true;
+      _set(
+        EmployeeAttendanceState(
+          EmployeeAttendanceStatus.ready,
+          session: snapshot.canonicalSession,
+        ),
+      );
+    } else if (result.problem ==
+            AttendanceOperationProblem.consumptionUncertain ||
+        result.problem == AttendanceOperationProblem.emptyRecoveryRequired) {
+      _emptyJournal = false;
+      _set(
+        EmployeeAttendanceState(
+          EmployeeAttendanceStatus.consumptionUnresolved,
+          recovery:
+              result.problem == AttendanceOperationProblem.emptyRecoveryRequired
+              ? AttendanceRecoveryAction.recoverEmpty
+              : AttendanceRecoveryAction.none,
+        ),
+      );
+    } else if (result.problem ==
+            AttendanceOperationProblem.canonicalUnavailable &&
+        result.outcome != AttendanceOperationOutcome.confirmedNeedsRefresh) {
+      _set(
+        const EmployeeAttendanceState(
+          EmployeeAttendanceStatus.refreshUnavailable,
+        ),
+      );
+    } else if (result.outcome == AttendanceOperationOutcome.confirmed &&
         snapshot?.canonicalSession != null) {
       _set(
         EmployeeAttendanceState(
           EmployeeAttendanceStatus.confirmed,
           session: snapshot!.canonicalSession,
           message:
-              'Le justificatif est conservé. Une vérification sur cet appareil '
-              'est encore nécessaire avant un nouveau pointage.',
+              'Le justificatif est conservé. Terminez la vérification avant '
+              'un nouveau pointage.',
         ),
       );
     } else if (result.outcome ==
@@ -577,7 +729,8 @@ final class EmployeeAttendanceWorkflow extends ChangeNotifier {
       final problem = result.problem;
       final blocked =
           result.outcome == AttendanceOperationOutcome.gated ||
-          problem == AttendanceOperationProblem.journalUnavailable;
+          problem == AttendanceOperationProblem.journalUnavailable ||
+          problem == AttendanceOperationProblem.contextUnavailable;
       _set(
         EmployeeAttendanceState(
           blocked

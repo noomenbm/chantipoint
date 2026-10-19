@@ -719,6 +719,45 @@ Real lifecycle behavior is host-tested using mocked Supabase auth/profile/role
 HTTP and fictional records; Android, hosted auth/RLS and native durability were
 not retested. Results are recorded in Development Status.
 
+## C5.2 serialized confirmation consumption
+
+`consumeConfirmed(context)` freezes the coordinator's complete confirmed proof
+at invocation, joins the full-binding queue, applies current-generation and
+journal/migration gates, compares the complete record and freshly reads the
+acknowledged session through the scoped canonical port. No UI boolean/session
+object authorizes cleanup. Guarded CAS writes confirmed -> empty at revision + 1;
+full reread must match before `consumed` can be returned. Queued duplicates cannot
+consume an intervening new command. No direct file deletion or reset is added.
+
+Successful CAS/readback plus reread establishes per-instance exact-empty proof.
+Before-write, after-commit, readback and post-CAS-read failures do not. The complete
+original receipt remains in volatile failed-attempt evidence; storage may already
+hold an empty tombstone. Both new submit and serialized `readActive` gate unproved
+persisted empty state. Known disappearance fails closed. Initial, previously unseen
+absence retains its existing meaning. Ownership lasts through normal release.
+
+`recoverEmpty` is explicit and never writes: validate the full empty record,
+invoke `JournalVerifier` with frozen raw bytes, then require exact reread after
+the file/directory synchronization and authenticated-readback barrier. A local
+unresolved attempt also requires its exact expected tombstone. Missing verifier,
+keys, unreadable/ambiguous or changed records preserve the gate. Replacement/app
+restart needs the same barrier. `emptyVerified` proves current state rather than
+retrospective success of an earlier failed cleanup. The original receipt cannot
+survive restart if an authorized compaction already replaced it; verified current
+tombstone state is recovered instead.
+
+Only a new captured-owner `readActive` supplies the next active/no-active selection,
+with complete journal comparison before/after scoped SELECT. Receipt fields and
+replay-only not_found cannot supply it. New positive outcomes mask publication
+after invalidation. See [Employee Workflow](employee-attendance-workflow.md).
+
+No durable writer lease, journal schema or cross-process queue is introduced.
+Native CAS still relies on immutable-command and monotonic revision/key discipline
+under its lock; Dart compares full records around it. Global production fencing,
+writer retirement and provenance remain required. App-data/key/device loss and
+arbitrary rollback are not solved. Host fault simulations do not prove Android
+runtime behavior or power-loss durability.
+
 ## C3.4 durable confirmed-record recovery
 
 The isolated coordinator now accepts an optional `JournalVerifier`. Existing

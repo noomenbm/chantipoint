@@ -14,7 +14,7 @@ Reuse `session_events.event_type`, `reason_code`, `notes`, `source`, `work_sessi
 
 Retain `checkout_source`. Retain `checkout_reason_code` in this migration too, despite its approved removal from the target: actual historical values and closure-event consistency must be audited before a later cleanup migration.
 
-## C5.1 isolated French employee workflow
+## C5.1/C5.2 isolated French employee workflow
 
 `EmployeeAttendanceWorkflow` connects the existing C4 immutable capture and C3
 operation coordinator through injected ownership, authorization notifications and
@@ -27,8 +27,14 @@ The workflow serializes presentation operations, suppresses stale generation/
 binding/session observations and leaves submitted work owned by C3 through normal
 settlement. It confirms only from durable coordinator proof plus canonical data;
 uncertainty, replay miss and storage gates block new intent. Recovery reuses the
-original command. Confirmed records remain retained and gated by explicit scope
-decision; no presentation-layer compaction is introduced. Standalone note saves
+original command. C5.2 adds an explicit French verification step. Only the shared
+coordinator consumes its exact durable confirmation after a fresh scoped canonical
+read, through revision/key/full-record guarded CAS to an empty tombstone. Failed
+compaction stays gated; unproved/restarted empty state requires exact verification.
+A fresh owner-scoped active SELECT under the same queue decides the next action.
+Consumption authority freezes before waiting, so queued duplicates cannot consume
+newer commands. No presentation-layer compaction or direct deletion is introduced;
+cross-process production ownership remains unresolved. Standalone note saves
 wait for uncertain-save reconciliation. See
 [Employee Attendance Workflow](employee-attendance-workflow.md) for the injected
 port contracts, safe composition boundary, testing and remaining C5/cutover work.
