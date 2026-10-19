@@ -50,6 +50,10 @@ final class AttendanceCaptureResult {
       : _status;
   CapturedAttendanceAction? get action =>
       _action?.isCurrent == true ? _action : null;
+
+  /// Release the original unsubmitted capture even if invalidation now hides
+  /// its action. Never releases ownership already handed to the coordinator.
+  Future<void> abandon() => _action?.abandon() ?? Future<void>.value();
 }
 
 /// A single explicit handoff, NOT a dispatch. Only the coordinator may release
@@ -90,6 +94,9 @@ final class CapturedAttendanceAction {
 /// default composition, journal writes, RPCs, classification or note-save API.
 /// Future UI must additionally honor server/outbox state before a new action.
 final class AttendanceActionCapture {
+  static const siteDescriptionLimit = 500;
+  static const finalNoteLimit = 1000;
+
   AttendanceActionCapture({
     required this.location,
     required this.clock,
@@ -186,9 +193,11 @@ final class AttendanceActionCapture {
       journalTimestamp(time.toIso8601String());
       journalText(key, max: 160);
       if (key.length < 8 || key.trim() != key) invalidJournal();
-      if (description != null) journalText(description, max: 500, empty: true);
+      if (description != null) {
+        journalText(description, max: siteDescriptionLimit, empty: true);
+      }
       if (frozenNote.text != null) {
-        journalText(frozenNote.text, max: 1000, empty: true);
+        journalText(frozenNote.text, max: finalNoteLimit, empty: true);
       }
       if (sessionId != null &&
           !RegExp(

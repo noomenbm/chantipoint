@@ -329,6 +329,39 @@ void main() {
       AttendanceCaptureStatus.contextUnavailable,
     );
   });
+
+  test(
+    'stale result can abandon without first obtaining a current action',
+    () async {
+      final context = h.issuer.context();
+      final result = await capture.checkIn(context: context);
+      h.issuer.relogin();
+      expect(result.action, isNull);
+      await result.abandon();
+      await result.abandon();
+      expect(context.releaseCalls, 1);
+      expect(capture.isBusy, isFalse);
+      final next = await capture.checkIn(context: h.issuer.context());
+      expect(next.status, AttendanceCaptureStatus.captured);
+      await next.abandon();
+    },
+  );
+
+  test(
+    'result-level abandonment cannot release a handed-off context',
+    () async {
+      final context = h.issuer.context();
+      final result = await capture.checkIn(context: context);
+      final submitted = result.action!.handoff()!;
+      h.issuer.relogin();
+      await result.abandon();
+      expect(capture.isBusy, isTrue);
+      expect(context.releaseCalls, 0);
+      await submitted.context.release();
+      expect(context.releaseCalls, 1);
+      expect(capture.isBusy, isFalse);
+    },
+  );
   test(
     'handoff is single-use; close/disposal waits for coordinator release',
     () async {

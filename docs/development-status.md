@@ -1,6 +1,82 @@
 # ChantiPoint Development Status
 
-Current slice: **M2.3c.C4, foreground location and v2 action capture**, based on
+Current slice: **M2.3c.C5.1, isolated French employee workflow and screen**,
+based on clean **`fb765edc015bceead730fb90240508a4a5c8721b`**, branch
+`feature/manual-attendance`.
+
+An injectable presentation workflow now connects C4 action capture to the C3
+coordinator. The isolated French screen supports one check-in action, canonical
+session/classification/review/saved-note display, Montréal timestamps and manual
+checkout with explicit preserve/replace/clear final-note intent. It has no
+production route, credential/active-reader composition or live-controller change.
+Hosted v2 remains inactive. No Android, backend or dependency changes were needed.
+
+The developer explicitly selected retention/gating of confirmed records for this
+slice: verified sessions can be displayed, but another command over that receipt
+waits for reviewed serialized confirmation consumption/compaction. Pending,
+ambiguous and blocked commands are never replaced. Recovery uses C3's exact replay
+or durable confirmed-record path. Route disposal leaves submitted work running to
+normal settlement, including late receipts; stale auth/session results are hidden.
+Standalone note saving waits for owner-scoped uncertain-save reconciliation.
+
+Integration review added a narrowly scoped C4 cleanup method: result-level
+abandonment releases an unsubmitted capture even when its current-action getter
+already hides stale intent. C5 awaits that cleanup in finally; handed-off contexts
+stay owned by C3 until settlement. Two regressions cover both boundaries.
+
+C5.1 input-validation review follow-up (2026-10-19):
+
+- Screen counters and frozen-input validation now use C4's shared 500/1,000
+  Unicode-code-point limits and exact text contract. No truncation, trimming or
+  normalization. Specific French input feedback preserves the draft/canonical
+  session for correction, without issuing a context, key or location request for
+  invalid text. Defensive C4 invalidInput feedback is also distinct from refresh
+  failures; its rejected context is released before a fresh attempt.
+- **119/119 focused tests passed**, including 20 added review regressions:
+  combining-character text below/at/above both limits, ordinary French unchanged,
+  unsupported Unicode, no truncation, correction followed by a successful fresh
+  action, no dispatch/journal writes or retained context on invalid input, and C4
+  invalidInput fallback. Final full serial suite: **1247/1247 passed**, zero
+  failures/skips, about 1m 13s. Analysis and git diff --check passed; untracked-file
+  whitespace/final-newline checks also passed.
+- Existing architecture, confirmation-retention gate, isolated navigation and
+  production restrictions are preserved. No Android build/runtime, hosted
+  operation, migration or Git mutation. Review archive and SHA-256 manifest were
+  regenerated; successful native fix validation remains open.
+
+Original C5.1 validation (2026-10-18):
+
+- Focused serial tests (capture, workflow, screen): **99/99 passed**. This includes
+  43 new workflow tests, 23 new widget tests, two new capture regressions and 31
+  retained capture tests.
+- Final full `flutter test --no-pub --concurrency=1`: **1227/1227 passed**, zero
+  failures/skips, about 1m 15s (1159 baseline plus 68 new tests).
+- `flutter analyze --no-pub`: **passed**, no issues. `git diff --check` and
+  whitespace/final-newline checks of untracked files passed.
+- Initial C:/E: free space **10.68/23.66 GiB**, available RAM **1.65 GiB**.
+  Sampled C: free space stayed at least **10.48 GiB**, above the existing 5 GiB
+  stop rule. After validation: **10.58/23.66 GiB**, available RAM **1.54 GiB**.
+  Host tests and analysis were sequential; no emulator, Gradle or Docker startup,
+  build, downloads, cache cleanup or pagefile changes. RAM reached **0.87 GiB**
+  during the final suite. An optional Android UI smoke run was omitted: the
+  existing image requires a 4 GiB guest, and no additional runtime harness/build
+  was justified under these resources. Host UI results do not establish Android
+  permission/fix or live auth-resume behavior.
+- Bounded read-only fsck checks, with and without reflogs, both reported 103
+  unreachable trees and 53 blobs, with no commits, tags or other diagnostics.
+  All 53 blobs were scanned within the limits; no credential-pattern candidates
+  or sensitive filename matches were found. This does not prove historical
+  remote absence or constitute an exhaustive secret audit.
+
+All changes remain unstaged/uncommitted for review on the original branch/HEAD.
+
+See [Employee Attendance Workflow](employee-attendance-workflow.md) for the exact
+dependency contracts, resource-controlled validation, bounded read-only Git audit
+and remaining work. Successful native location fixes and live auth/resume
+composition remain unvalidated; C4's grant/approximate timeouts are not GPS-fix
+success. No C5 Android UI smoke test or Android build was run.
+
+Previous slice: **M2.3c.C4, foreground location and v2 action capture**, based on
 clean **`89ee90b6d0971c46b115231cb83d49ee69d521d7`**, branch
 `feature/manual-attendance`.
 

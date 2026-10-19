@@ -14,6 +14,25 @@ Reuse `session_events.event_type`, `reason_code`, `notes`, `source`, `work_sessi
 
 Retain `checkout_source`. Retain `checkout_reason_code` in this migration too, despite its approved removal from the target: actual historical values and closure-event consistency must be audited before a later cleanup migration.
 
+## C5.1 isolated French employee workflow
+
+`EmployeeAttendanceWorkflow` connects the existing C4 immutable capture and C3
+operation coordinator through injected ownership, authorization notifications and
+an owner-scoped active-session read/observation port. `EmployeeAttendanceScreen`
+provides French check-in, manual checkout with preserve/replace/clear final-note
+intent, canonical saved-note/review display and Montréal business time. It is
+absent from main/AuthGate/navigation; the live legacy path remains unchanged.
+
+The workflow serializes presentation operations, suppresses stale generation/
+binding/session observations and leaves submitted work owned by C3 through normal
+settlement. It confirms only from durable coordinator proof plus canonical data;
+uncertainty, replay miss and storage gates block new intent. Recovery reuses the
+original command. Confirmed records remain retained and gated by explicit scope
+decision; no presentation-layer compaction is introduced. Standalone note saves
+wait for uncertain-save reconciliation. See
+[Employee Attendance Workflow](employee-attendance-workflow.md) for the injected
+port contracts, safe composition boundary, testing and remaining C5/cutover work.
+
 ## C4 isolated foreground action capture
 
 `ForegroundLocationService` and an Android versioned channel collect a single
