@@ -14,6 +14,31 @@ Reuse `session_events.event_type`, `reason_code`, `notes`, `source`, `work_sessi
 
 Retain `checkout_source`. Retain `checkout_reason_code` in this migration too, despite its approved removal from the target: actual historical values and closure-event consistency must be audited before a later cleanup migration.
 
+## C4 isolated foreground action capture
+
+`ForegroundLocationService` and an Android versioned channel collect a single
+foreground fix only on an explicit action. The cached geolocator timeout/service
+behavior did not meet the required boundary, so the adapter uses the cached
+AndroidX cancellable single-fix API. Native cancellation settles before timeout
+publication, and activity pause cancels the request. Only foreground coarse/fine
+permissions are declared; no tracking service, stream or background monitoring.
+
+`AttendanceActionCapture` captures the original UTC action time, secure key,
+description/session/note intent before acquisition awaits. It preserves native
+fix time and finite low-quality evidence for server evaluation. Permission or fix
+failure remains diagnostic evidence and does not independently reject attendance.
+Complete v2 parameters freeze once in the existing JournalCommand. No device
+classification or standalone note-save command is introduced.
+
+Captured generation/full binding and the original checkout-session observation
+gate handoff. Duplicate taps cannot replace intent, and close/abandon cannot
+release submitted ownership before coordinator settlement. This layer dispatches
+and persists nothing. MainActivity only registers an inert channel; the live
+legacy controller/screens and hosted gate remain unchanged. Application-lifetime
+composition, backend cutover, real employee privacy approval and C3 migration/
+fencing prerequisites remain pending. See [Foreground Location](foreground-location.md)
+for cancellation, handoff, native probe and platform limitations.
+
 ## C3.4 isolated confirmed-record recovery
 
 `AttendanceOperationCoordinator.recoverConfirmed` is an explicit, opt-in path

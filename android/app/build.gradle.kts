@@ -4,8 +4,10 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
-// Opt-in, fictional journal runtime harness; normal application builds are unchanged.
+// Opt-in fictional runtime harnesses; no normal application activation.
 val journalValidation = providers.gradleProperty("journalValidation").orNull == "true"
+val locationValidation = providers.gradleProperty("locationValidation").orNull == "true"
+check(!(journalValidation && locationValidation))
 
 android {
     namespace = "com.example.chantipoint"
@@ -23,6 +25,10 @@ android {
         if (journalValidation) {
             applicationIdSuffix = ".journalvalidation"
             testInstrumentationRunner = "com.example.chantipoint.journal.JournalRuntimeInstrumentation"
+        }
+        if (locationValidation) {
+            applicationIdSuffix = ".locationvalidation"
+            testInstrumentationRunner = "com.example.chantipoint.location.ForegroundLocationInstrumentation"
         }
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
@@ -54,3 +60,6 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+// Existing cached AndroidX version; cancellable single-fix API, no tracking service.
+dependencies { implementation("androidx.core:core:1.17.0") }

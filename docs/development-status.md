@@ -1,6 +1,105 @@
 # ChantiPoint Development Status
 
-Current slice: **M2.3c.C3.4, durable confirmed-record recovery**, based on clean
+Current slice: **M2.3c.C4, foreground location and v2 action capture**, based on
+clean **`89ee90b6d0971c46b115231cb83d49ee69d521d7`**, branch
+`feature/manual-attendance`.
+
+The one-shot evidence service and immutable check-in/out action capture are
+implemented as isolated modules. Exact auth generation/binding and original
+checkout-session observations gate capture/handoff. The capture retains one
+key/time/input snapshot and keeps ownership until abandoned acquisition or
+submitted work settles. No live controller/screen, RPC, journal, migration or
+hosted-gate activation is added. Standalone note saves stay outside the outbox.
+
+The cached geolocator 14.1.1 / Android 5.1.1+1 timeout sends an unawaited cancel
+and automatically binds a service. Instead, a narrow native channel uses the
+already cached AndroidX Core 1.17.0 cancellable single-fix API. No new Dart package,
+fork/cache patch or upgrade is introduced. Coarse/fine foreground permission is
+declared; no background permission, tracking service, position stream or polling.
+MainActivity registers the channel but the live legacy GPS-free path never calls
+it. See [Foreground Location](foreground-location.md) for the exact contract.
+
+C4 validation (2026-10-18):
+
+- Focused host tests: **95/95 passed**. Full serial Flutter suite:
+  **1159/1159 passed**, zero failures/skips (1064 retained plus 95 new),
+  final run about 1m 30s. `flutter analyze --no-pub`: passed, no issues.
+- The final source review fixed a malformed-context cleanup edge: if identity
+  access and release both fail, busy/drain state now clears in finally and the
+  result is contextUnavailable. Two regressions verify release once, no key/fix
+  and a non-hanging close. This fix is included in the final host suite and APK.
+- Normal Android app debug build: **offline passed**, 1m 33s. Packaged manifest
+  inspection found coarse/fine foreground permission, no background-location
+  permission and no tracking service. The normal app was not launched.
+- Isolated location-validation app/test APKs: **offline passed**; final rebuild
+  after the cleanup guard: **1m 9s**. Existing SDK/dependencies/caches and the
+  one-worker/1 GiB Gradle configuration were reused; no package/SDK downloads.
+
+Actual emulator observations on API 37 x86_64, 16 KiB pages:
+
+| Scenario | Observed permission | Observed acquisition | System dialog click |
+| --- | --- | --- | --- |
+| Grant | precise | timeout, no fix | Yes |
+| Denial | denied | permission_denied, no fix | Yes |
+| Coarse only | approximate | timeout, no fix | No prompt/escalation |
+| Services disabled | approximate | location_services_disabled, no fix | No prompt |
+
+All **four scenarios passed again on the final APK**, each
+`INSTRUMENTATION_CODE: -1`; each produced
+an immutable captured command rather than dispatching attendance. No fix was
+returned despite fictional coordinate injection. Do not claim native successful
+fix/coordinate/timestamp/accuracy mapping was runtime-tested; those cases passed
+host mocks only. Real provider errors, denied-forever, cancellation exceptions,
+older Android/OEM hardware and physical devices remain untested on Android.
+
+The first runtime attempt was obstructed by an emulator System UI ANR and failed
+with no reply. A test-harness teardown defect also destroyed its cached engine
+before Activity/FlutterView teardown, causing a FlutterJNI-detached exception.
+The harness now transfers engine destruction to the Activity and uses observed
+system permission controls; one final grant run selected Wait once for System
+UI. An initial protected engine-access compile error was resolved using a
+public cached-engine builder. All these controls remain in androidTest. No
+production-only test accessor or auth behavior change was introduced.
+
+The first four device observations preceded the final malformed-context cleanup
+guard. After resources were freed, the final app/test APKs were reinstalled and
+all four scenarios above passed again, including an actual system-dialog click
+for grant and denial. Grant selected Wait once for a System UI ANR; the other
+three scenarios needed no System UI wait. The final APK is now runtime-tested;
+the malformed-context failure itself remains covered by host regression tests.
+
+C4 restores the **5 GiB C: stop rule**, with a proactive 5.5 GiB guard. Initial
+C:/E: free space was **10.88/23.68 GiB**, available RAM **1.47 GiB**. Before the
+first emulator start, available RAM was **2.67 GiB**. The earlier runtime disk
+checks stayed above **7.19 GiB**; its successful scenario samples were at least
+**7.20 GiB**. The requested 1536 MiB guest was raised to **4096 MiB** by the image.
+Host testing, builds and emulator work were sequential. That run's original enabled
+location-services state was restored, then the emulator was stopped. No unrelated
+cache/data deletion, pagefile changes, Docker, hosted requests or Git mutations.
+`git diff --check` passed. All source changes remain unstaged for review.
+Before the final-APK rerun, C:/E: free space was **10.70/23.68 GiB**, available
+RAM **2.95 GiB**. The minimum sampled C: free space during that rerun was
+**7.03 GiB**, above the stop threshold. Available RAM reached **0.25 GiB** during
+installation; no parallel build or host test was started. On this boot, location
+services were initially disabled and that original state was restored afterward.
+The emulator was stopped after validation. No new source fix or rebuild was
+needed for this rerun; the existing final host/build results above still apply.
+After shutdown (2026-10-18 23:09 UTC), C:/E: free space was **10.57/23.68 GiB**,
+available RAM **3.18 GiB**; no emulator or Gradle JVM remained and ADB listed no
+device. Tested APK SHA-256 values:
+
+- Isolated app: `32F3EA5B554E300BEEA1C08D70E7A10670EDF6CBC2C81AF537E144738685E19B`
+- Instrumentation: `2746222A0DAF74DA40B4C0419943D9B76E861969729D2C7480553F7FA2546F8B`
+
+Live auth/resume integration is not tested by the fictional probe. A permission
+dialog can trigger unchanged resume revalidation and invalidate a real C3.3
+context; C4 must abandon rather than retarget it. Future UI permission setup or
+an explicit fresh action after reauthorization requires coordinated composition.
+Real employee collection, actual successful device fixes, production privacy
+approval, app composition, backup/migration/fencing and approved backend cutover
+remain gated. The live legacy attendance path remains unchanged.
+
+Previous slice: **M2.3c.C3.4, durable confirmed-record recovery**, based on clean
 **`99d6ea73100acdeab333ddc04739d047a460c107`** on `feature/manual-attendance`.
 
 The opt-in `verifyRecordV1` native barrier authenticates and compares the entire
