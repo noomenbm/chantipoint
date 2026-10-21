@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' show ClientException;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -17,6 +18,11 @@ class SupabaseAuthRepository implements AuthRepository {
   Session? _authorizedSession;
   Future<void> _authCommands = Future.value();
   AuthorizedSessionEvidence? _attendanceAuthorization;
+  final _attendanceOperations = _AttendanceOperationChanges();
+
+  /// Attendance-only synchronous initiation observation; no auth result changes.
+  /// Application-owned listeners must detach when their owner closes.
+  Listenable get attendanceOperationChanges => _attendanceOperations;
 
   // Additive evidence only: no new queries, auth mutations or changed UI result.
   // Operation changes synchronously at restore/login/logout initiation, including
@@ -85,6 +91,7 @@ class SupabaseAuthRepository implements AuthRepository {
   @override
   Future<AuthorizedUser?> restoreSession() async {
     final operation = ++_operation;
+    _attendanceOperations.started();
     if (!hasSession) return null;
     return _authorize(operation);
   }
@@ -97,12 +104,16 @@ class SupabaseAuthRepository implements AuthRepository {
     final operation = ++_operation;
     _terminationReason = null;
     try {
-      final response = await _serializeAuth(
+      final pending = _serializeAuth(
         () => _client.auth.signInWithPassword(
           email: email.trim(),
           password: password,
         ),
       );
+      // Reserve queue order before calling observers, which may themselves
+      // initiate logout. The SDK work still starts after this synchronous hook.
+      _attendanceOperations.started();
+      final response = await pending;
       if (response.user == null || response.session == null) {
         throw const AuthFailure(AuthFailureKind.invalidCredentials);
       }
@@ -170,9 +181,11 @@ class SupabaseAuthRepository implements AuthRepository {
     try {
       // Serialize auth mutations so a delayed login cannot recreate a session
       // after a newer logout has already completed.
-      await _serializeAuth(
+      final pending = _serializeAuth(
         () => _client.auth.signOut(scope: SignOutScope.local),
       );
+      _attendanceOperations.started();
+      await pending;
       if (hasSession) throw const AuthFailure(AuthFailureKind.unknown);
     } catch (error) {
       throw _failureFor(error);
@@ -276,4 +289,8 @@ class SupabaseAuthRepository implements AuthRepository {
     }
     return const AuthFailure(AuthFailureKind.unknown);
   }
+}
+
+final class _AttendanceOperationChanges extends ChangeNotifier {
+  void started() => notifyListeners();
 }

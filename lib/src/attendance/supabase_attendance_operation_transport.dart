@@ -18,6 +18,8 @@ enum AttendanceHttpFailureKind {
   http,
   responseTooLarge,
   malformedResponse,
+  authorizationUnavailable,
+  staleObservation,
 }
 
 /// Safe codes only. Never attach URLs, credentials, bodies or underlying errors.
@@ -34,7 +36,10 @@ final class AttendanceHttpFailure implements Exception {
 /// It must not log request/response data or credentials.
 /// Caller owns its lifetime: do not close it while operations remain outstanding.
 final class SupabaseAttendanceOperationTransport
-    implements AttendanceOperationTransport, AttendanceCanonicalReader {
+    implements
+        AttendanceOperationTransport,
+        AttendanceCanonicalReader,
+        AttendanceActiveSessionQuery {
   SupabaseAttendanceOperationTransport({
     required this.authority,
     required this.client,
@@ -54,6 +59,110 @@ final class SupabaseAttendanceOperationTransport
     'employee_note',
     'review_status',
   };
+
+  /// One SELECT snapshot proves both visible employee authorization and the
+  /// active selection. A bare work_sessions [] can also mean RLS hid a revoked
+  /// employee; it cannot safely establish "no active session".
+  @override
+  Future<WorkSession?> readActiveSession(
+    AttendanceOperationIdentity identity,
+  ) async {
+    final scope = await _acquire(identity);
+    final binding = identity.binding;
+    final text = await _send(
+      identity,
+      scope,
+      'GET',
+      '/rest/v1/user_profiles',
+      query: {
+        'select':
+            'id,auth_user_id,company_id,status,'
+            'employee_role:role_assignments!role_assignments_profile_company_fk'
+            '(role,status,user_profile_id,company_id),'
+            'sessions:work_sessions!work_sessions_employee_company_fk'
+            '(${_columns.join(',')})',
+        'id': 'eq.${binding.profileId}',
+        'auth_user_id': 'eq.${binding.authUserId}',
+        'company_id': 'eq.${binding.companyId}',
+        'status': 'eq.active',
+        'employee_role.role': 'eq.employee',
+        'employee_role.status': 'eq.active',
+        'employee_role.user_profile_id': 'eq.${binding.profileId}',
+        'employee_role.company_id': 'eq.${binding.companyId}',
+        'employee_role.limit': '2',
+        'sessions.employee_profile_id': 'eq.${binding.profileId}',
+        'sessions.company_id': 'eq.${binding.companyId}',
+        'sessions.lifecycle_status': 'eq.active',
+        'sessions.limit': '2',
+        'limit': '2',
+      },
+    );
+    _check(identity, scope);
+    try {
+      final profiles = JournalJson.decodeText(text, limit: responseLimit);
+      if (profiles is! List || profiles.length > 1) invalidJournal();
+      if (profiles.isEmpty) {
+        throw const AttendanceHttpFailure(
+          AttendanceHttpFailureKind.authorizationUnavailable,
+        );
+      }
+      final profile = journalObject(profiles.single);
+      journalFields(profile, {
+        'id',
+        'auth_user_id',
+        'company_id',
+        'status',
+        'employee_role',
+        'sessions',
+      });
+      if (profile['id'] != binding.profileId ||
+          profile['auth_user_id'] != binding.authUserId ||
+          profile['company_id'] != binding.companyId) {
+        invalidJournal();
+      }
+      final roles = profile['employee_role'];
+      if (roles is! List || roles.length > 1) invalidJournal();
+      if (profile['status'] != 'active' || roles.isEmpty) {
+        throw const AttendanceHttpFailure(
+          AttendanceHttpFailureKind.authorizationUnavailable,
+        );
+      }
+      final role = journalObject(roles.single);
+      journalFields(role, {'role', 'status', 'user_profile_id', 'company_id'});
+      if (role['role'] != 'employee' ||
+          role['status'] != 'active' ||
+          role['user_profile_id'] != binding.profileId ||
+          role['company_id'] != binding.companyId) {
+        invalidJournal();
+      }
+      final sessions = profile['sessions'];
+      if (sessions is! List || sessions.length > 1) invalidJournal();
+      if (sessions.isEmpty) return null;
+      final row = journalObject(sessions.single);
+      journalFields(row, _columns);
+      if (row['company_id'] != binding.companyId ||
+          row['employee_profile_id'] != binding.profileId ||
+          row['id'] is! String ||
+          !RegExp(
+            r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+          ).hasMatch(row['id'] as String) ||
+          row['lifecycle_status'] != 'active' ||
+          row['ended_at'] != null ||
+          !WorkSession.reviewStatuses.contains(row['review_status'])) {
+        invalidJournal();
+      }
+      journalTimestamp(row['started_at']);
+      final session = WorkSession.fromJson(row);
+      _check(identity, scope);
+      return session;
+    } on AttendanceHttpFailure {
+      rethrow;
+    } catch (_) {
+      throw const AttendanceHttpFailure(
+        AttendanceHttpFailureKind.malformedResponse,
+      );
+    }
+  }
 
   @override
   Future<AttendanceTransportReply> dispatch(

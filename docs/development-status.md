@@ -1,6 +1,69 @@
 # ChantiPoint Development Status
 
-Current slice: **M2.3c.C5.2, safe confirmed-receipt consumption**, based on clean
+Current slice: **M2.3c.C6.1, production-scoped v2 read and auth notification
+adapters**, based on clean **`dff71224d21ea6a6779c8accead7f147044520e8`**, branch
+`feature/attendance-v2-adapters`. The human created the branch; no branch or other
+Git mutation was performed. Work remains unstaged/uncommitted for review.
+
+The existing C3.2 transport now supports an active SELECT with the exact C3.3
+owner/authority, binding and generation. Its bounded, one-attempt, pinned-scope
+HTTP behavior is reused. A single SELECT embeds the active owned profile,
+employee role and active sessions using the existing composite foreign keys.
+Only a valid authorized envelope with zero sessions yields null: RLS-hidden
+profiles, missing roles, wrong owners, inactive/malformed/multiple rows, missing
+v2 fields and HTTP/network/schema/staleness failures remain unavailable. No
+legacy current-user shortcut, receipt reconstruction or auth mutation is added.
+
+`ScopedAttendanceActiveSessionReader` implements C5's observation port. Reads do
+not advance revision or notify; an explicit authorized `invalidateSession`
+retires the checkout baseline, increments revision and requires refresh. Read
+sequence/revision guards prevent delayed replies overwriting newer selections.
+No independent production event source, subscription or polling is wired.
+
+`AttendanceAuthOwner` is now the C5 authorization `Listenable` as well as the
+context/credential authority. Existing controller boundaries and additive
+synchronous repository initiation notifications cover logout, same-user login,
+account changes and revalidation. Auth mutation queue order is reserved before
+observer callbacks. Notifications publish complete transitions; proven same-login
+refresh is quiet. Close revokes immediately, detaches source listeners and drains
+issued contexts without cancelling submitted work or force-releasing ownership.
+The application owns it and closes it before disposing AuthController; routes
+only detach their own listeners. Legacy auth outcomes/queries are unchanged.
+
+Supported auth mutations must continue through AuthController/the repository.
+Raw SDK initiation cannot be universally intercepted: exact-session currency
+guards reject replacements before stale use, and notifications follow the SDK
+event. This slice does not add a global auth interceptor.
+
+C6.1 validation (2026-10-20, host only):
+
+- **289/289 focused tests passed** across eight files, including legacy auth and
+  attendance regressions. **87 new tests**: 58 scoped-reader/HTTP cases, 15 auth
+  notification cases and 14 isolated C5 integration cases. Identities, HTTP and
+  auth responses are fictional/mocked; journal storage is a test fixture.
+- Full `flutter test --no-pub --concurrency=1`: **1388/1388 passed**, zero failures
+  or skips (1301 baseline plus 87 new), about 1m 29s of test output.
+- `flutter analyze --no-pub`: **no issues**. `git diff --check` and changed-file
+  whitespace/newline checks passed. No analyzer suppression or weakened tests.
+- Initial C:/E: **28.23/22.68 GiB**, available RAM **0.33 GiB**. Final validated
+  focused/full minima: **28.12/28.11 GiB C:**. After testing:
+  **28.22/22.68 GiB**, available RAM **1.06 GiB**. Host commands ran sequentially
+  with one test worker and a proactive **5.5 GiB C:** guard (above the documented
+  5 GiB stop rule). No cleanup, downloads, emulator, Gradle or Docker startup.
+
+The live main/AuthGate/controller/factory and hosted gate remain unchanged. No
+demo fixtures/branding, SQL, native journal/storage, standalone note saves, GPS,
+new dependencies or production navigation were introduced. No hosted request,
+Android build, emulator, Docker, migration or legacy-file cleanup was performed.
+Live PostgREST/RLS/schema-cache validation of the embedded query, trusted
+composition, approved v2 deployment/activation, production provenance/assignment
+and durable legacy-writer retirement/fencing, backup and privacy approval remain
+pre-cutover gates. The host suite does not establish live cutover readiness.
+
+See [Architecture](architecture.md#c61-scoped-active-reads-and-auth-notifications-not-composed)
+and [Employee Workflow](employee-attendance-workflow.md#composition-and-ownership).
+
+Previous slice: **M2.3c.C5.2, safe confirmed-receipt consumption**, based on clean
 **`e800cee90d6a500065fe6c8c6d0a810701d81655`**, branch
 `feature/manual-attendance`.
 

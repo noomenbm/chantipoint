@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show AuthChangeEvent;
 
 import '../auth/auth_controller.dart';
@@ -67,7 +68,8 @@ final class AttendanceTrustedDeployment {
 /// Application-lifetime owner AND C3.2 authority for the same in-process epochs.
 /// Not composed in main/live attendance. Pair the exact controller/repository;
 /// no screen owns/disposes this object. No global/native/restart fencing claim.
-final class AttendanceAuthOwner implements AttendanceRequestAuthority {
+final class AttendanceAuthOwner
+    implements AttendanceRequestAuthority, Listenable {
   AttendanceAuthOwner({
     required this.auth,
     required this.repository,
@@ -86,6 +88,7 @@ final class AttendanceAuthOwner implements AttendanceRequestAuthority {
       onError: (Object _, StackTrace _) => _invalidate(),
     );
     auth.addListener(_onAuth);
+    repository.attendanceOperationChanges.addListener(_onOperation);
     _onAuth();
   }
   final AuthController auth;
@@ -102,6 +105,49 @@ final class AttendanceAuthOwner implements AttendanceRequestAuthority {
   final _attempts = <_AttendanceContext>{};
   final _drained = Completer<void>();
   Future<void>? _closing;
+  final _changes = _AttendanceAuthChanges();
+  int _transitionDepth = 0;
+  bool _notificationPending = false;
+
+  @override
+  void addListener(VoidCallback listener) {
+    if (_closed) {
+      throw const AttendanceAuthFailure(
+        AttendanceAuthFailureKind.contextInvalidated,
+      );
+    }
+    _changes.addListener(listener);
+  }
+
+  @override
+  void removeListener(VoidCallback listener) =>
+      _changes.removeListener(listener);
+
+  void _changed() {
+    if (_transitionDepth != 0) {
+      _notificationPending = true;
+    } else {
+      _changes.changed();
+    }
+  }
+
+  // Publish only a complete transition, never the half-built approved identity.
+  void _transition(void Function() work) {
+    _transitionDepth++;
+    try {
+      work();
+    } finally {
+      _transitionDepth--;
+      if (_transitionDepth == 0 && _notificationPending) {
+        _notificationPending = false;
+        _changes.changed();
+      }
+    }
+  }
+
+  void _onOperation() {
+    if (!_closed && _approval != null) _invalidate();
+  }
 
   int get generation => _generation;
   int get outstandingAttempts => _attempts.length;
@@ -111,9 +157,11 @@ final class AttendanceAuthOwner implements AttendanceRequestAuthority {
     _approval = null;
     _credentials = null;
     _identity = null;
+    _changed();
   }
 
-  void _onAuth() {
+  void _onAuth() => _transition(_updateAuth);
+  void _updateAuth() {
     if (_closed) return;
     final state = auth.state;
     if (auth.isDisposed || state.status != AuthStatus.authenticated) {
@@ -161,7 +209,9 @@ final class AttendanceAuthOwner implements AttendanceRequestAuthority {
     }
   }
 
-  void _onSession(AuthSessionObservation event) {
+  void _onSession(AuthSessionObservation event) =>
+      _transition(() => _updateSession(event));
+  void _updateSession(AuthSessionObservation event) {
     if (_closed) return;
     if (event.event == AuthChangeEvent.tokenRefreshed) {
       final next = event.session;
@@ -282,14 +332,31 @@ final class AttendanceAuthOwner implements AttendanceRequestAuthority {
 
   /// Application shutdown only. Revoke new work and detach listeners now; wait
   /// for every issued context's normal release. Never cancel/force-release work.
-  Future<void> close() => _closing ??= _close();
+  Future<void> close() {
+    if (_closing != null) return _closing!;
+    // Store the future before synchronous invalidation notifies listeners.
+    final done = Completer<void>();
+    _closing = done.future;
+    unawaited(_close().then(done.complete, onError: done.completeError));
+    return done.future;
+  }
+
   Future<void> _close() async {
     _closed = true;
     _invalidate();
     auth.removeListener(_onAuth);
-    await _subscription.cancel();
+    repository.attendanceOperationChanges.removeListener(_onOperation);
+    try {
+      await _subscription.cancel();
+    } finally {
+      _changes.dispose();
+    }
     if (_attempts.isNotEmpty) await _drained.future;
   }
+}
+
+final class _AttendanceAuthChanges extends ChangeNotifier {
+  void changed() => notifyListeners();
 }
 
 final class _AttendanceContext implements AttendanceOperationContext {

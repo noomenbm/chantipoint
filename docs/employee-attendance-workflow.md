@@ -13,25 +13,40 @@ notifications and an `AttendanceActiveSessionReader`. There are no production
 defaults. The screen owns its workflow/capture; the shared coordinator, storage,
 request authority and C3.3 auth owner must outlive the route.
 
-The context issuer can eventually be the application-lifetime C3.3 owner's
-`issueContext`. The notification input must cover all authorization-generation
-boundaries, including session events, revalidation and logout initiation. Merely
-watching UUID equality or assuming every SDK event becomes an AuthController
-notification is insufficient. Context currency is rechecked synchronously at
-use and after awaits, against the exact generation and five-field binding.
-Token refresh within the same authorized generation needs no presentation reset.
-Production composition of these inputs is deliberately absent.
+For future composition, use the application-lifetime C3.3 owner's `issueContext`
+and the **same owner** as the `authorizationChanges` Listenable. C6.1 notifications
+cover session boundaries, revalidation, authorization loss and synchronous logout/
+relogin initiation, including repository-direct calls. Callbacks see a complete
+transition; no grant precedes profile/role attestation. A proven token refresh in
+the same authorized login neither rotates its generation nor clears the workflow.
+Currency is still checked synchronously at use and after awaits against the exact
+generation and five-field binding. The owner detaches sources and drains issued
+contexts on application `close`; a route never closes it. Production composition
+of these inputs remains deliberately absent.
 
 The new active-session read port is necessary because C3.2's canonical reader
 reads an acknowledged session by ID, including closed sessions; it is not an
 active-session discovery API. The injected port must use captured credentials,
 owner/environment scope and authorization guards, validate the active selection,
-and reject wrong-owner or stale results. No adapter to the legacy repository's
-current-account lookup is supplied. Its synchronous original-session observation
-and monotonic revision/listenable describe independently known session changes.
-Reading alone must not advance the revision; delayed reads cannot supersede newer
-observations. This is presentation currency, not a new authorization authority,
-proof of server state, background listener or polling implementation.
+and reject wrong-owner or stale results. C6.1 provides
+`ScopedAttendanceActiveSessionReader` over C3.2 transport/C3.3 authority, without
+adapting the legacy current-account repository. The read embeds the captured
+active profile, employee role and active sessions in one SELECT snapshot: a
+validated authorized parent with no sessions is null; an absent/hidden profile
+or missing role is failure. It validates owner fields and required note/review/
+classification fields. Missing v2 schema and all transport/authorization failures
+remain unavailable and cannot enable a new check-in as if no session existed.
+
+Its original-session observation and monotonic revision/Listenable describe
+independently known changes. An explicit `invalidateSession(identity)` revokes
+the checkout baseline, increments revision and notifies C5; a fresh read is then
+required. Reading itself does not tick revision or notify. Each new lookup retires
+the previous baseline; a failed lookup establishes nothing. Older overlapping
+reads and reads overtaken by independent invalidation cannot overwrite newer
+observations. This is presentation currency, not a new auth authority, server
+subscription or polling implementation. The future composition must supply any
+independent session-change source; C6.1 wires none. Dispose the reader only when
+its composition ends; it does not cancel HTTP or close its borrowed owner/client.
 
 One workflow operation runs at a time. Buttons and refresh/recovery are disabled
 during acquisition, read, dispatch, canonical refresh and context release. A
@@ -153,8 +168,8 @@ save/checkout can assume its outcome, and suppress stale publication. It stays
 outside the attendance outbox. Atomic immutable final checkout notes are supported
 now; there is no standalone Save button.
 
-Other pre-cutover gates remain: production active-session adapter and auth/session
-notification composition, trusted legacy
+Other pre-cutover gates remain: production composition of the C6.1 active-session
+adapter and auth notifications, trusted legacy
 provenance/assignment and coordinated writer retirement/fencing, backup/transfer
 policy, approved deployment/activation, privacy approval and successful native fix
 validation. C4's actual API 37 grant/approximate runs returned timeout without a

@@ -14,6 +14,55 @@ Reuse `session_events.event_type`, `reason_code`, `notes`, `source`, `work_sessi
 
 Retain `checkout_source`. Retain `checkout_reason_code` in this migration too, despite its approved removal from the target: actual historical values and closure-event consistency must be audited before a later cleanup migration.
 
+## C6.1 scoped active reads and auth notifications (not composed)
+
+`SupabaseAttendanceOperationTransport.readActiveSession` supplies a C5 read using
+the exact C3.3 `AttendanceAuthOwner` authority, captured generation and five-field
+binding. It reuses C3.2's pinned credentials, independently trusted endpoint/key,
+one-attempt bounded strict-UTF-8 HTTP boundary and pre/post-await guards. Canonical
+acknowledged-session reads still include closed sessions; dispatch and receipt
+handling are unchanged. No current-account SDK attendance lookup is used.
+
+A bare empty `work_sessions` response cannot distinguish no session from RLS
+hiding a disabled/revoked employee. One `user_profiles` SELECT therefore embeds
+the active employee role and active sessions through the existing named composite
+foreign keys. The parent and both children are explicitly company/profile scoped;
+the parent is also auth-user scoped. Exactly one active owned profile and employee
+role must validate. Only its empty sessions array means no active session. Missing
+authorization, owner mismatch, multiple/inactive/malformed sessions, missing v2
+fields, HTTP/schema/network failures and expired/stale scopes are failures, never
+an empty selection. This checks the SELECT snapshot, not continuous authorization.
+The query follows [PostgREST resource embedding](https://docs.postgrest.org/en/stable/references/api/resource_embedding.html);
+actual deployment/schema-cache compatibility remains a pre-composition check.
+
+`ScopedAttendanceActiveSessionReader` supplies C5's observation port over that
+same transport. Reads establish a checkout baseline without changing its public
+revision or notifying listeners. An explicit authorized `invalidateSession`
+advances revision, clears the baseline and requires refresh. It grants no new
+session or authorization. Revision and read-sequence guards reject older results;
+`isSessionCurrent` checks the original identity and session. No production source
+of independent session notifications is connected, and there is no subscription
+or polling. Disposal rejects publication but leaves submitted HTTP work settling
+and does not close borrowed auth/client resources.
+
+The existing application-lifetime auth owner now implements `Listenable`.
+Notifications cover existing synchronous controller boundaries and additive
+repository operation-initiation hooks, including direct repository operations.
+Auth queue order is reserved before callbacks can initiate newer logout. Complete
+owner transitions publish atomically, after profile/role attestation for a grant;
+proven same-login token refresh neither rotates generation nor notifies C5.
+`close()` revokes synchronously, removes controller/repository/SDK listeners and
+waits for issued contexts' normal release. Routes only detach their own listeners;
+the application must close the owner before disposing its auth controller.
+Supported mutations stay in AuthController/the repository. Direct SDK invocation
+has no universal initiation hook; exact-session guards reject replaced credentials
+and the ordered SDK event notifies the owner. No global interceptor is claimed.
+
+These adapters remain absent from main/AuthGate/live attendance. Hosted schema,
+v2 activation, trusted deployment composition, legacy provenance and durable
+writer retirement/fencing, storage/backup/privacy approvals remain cutover gates.
+No journal recovery, note-save action, GPS or backend change is introduced.
+
 ## C5.1/C5.2 isolated French employee workflow
 
 `EmployeeAttendanceWorkflow` connects the existing C4 immutable capture and C3
