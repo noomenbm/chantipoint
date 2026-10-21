@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../auth/auth_controller.dart';
 import '../attendance/attendance_controller.dart';
+import '../attendance/history/session_history.dart';
 import 'access_check_screen.dart';
 import 'authenticated_home_screen.dart';
 import 'login_screen.dart';
@@ -13,10 +14,12 @@ class AuthGate extends StatefulWidget {
     super.key,
     required this.authController,
     this.attendanceControllerFactory,
+    this.historyRepositoryFactory,
   });
 
   final AuthController authController;
   final AttendanceControllerFactory? attendanceControllerFactory;
+  final SessionHistoryRepositoryFactory? historyRepositoryFactory;
 
   @override
   State<AuthGate> createState() => _AuthGateState();
@@ -97,6 +100,16 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
             user: state.user!,
             onSignOut: widget.authController.signOut,
             attendanceControllerFactory: widget.attendanceControllerFactory,
+            historyRepositoryFactory: widget.historyRepositoryFactory == null
+                ? null
+                : (user, isMounted) => widget.historyRepositoryFactory!(
+                    user,
+                    () =>
+                        isMounted() &&
+                        !widget.authController.isDisposed &&
+                        identical(widget.authController.state, state) &&
+                        state.status == AuthStatus.authenticated,
+                  ),
           ),
         };
       },

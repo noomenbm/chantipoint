@@ -6,6 +6,7 @@ The current Flutter app provides authentication and a manual factory attendance 
 
 ## Current Development State
 
+- The normal employee home now includes read-only **Historique**, with six-calendar-month Montréal boundaries and bounded server-side pagination. Optional note/review projections require explicit deployment capabilities; the live default assumes neither. See [Employee Session History](docs/employee-session-history.md) for the window, authorization and compatibility limits. Attendance writes and standalone note Save are unchanged.
 - **M2.1 complete:** the initial database foundation is deployed to the hosted development project `chantipoint-dev`; 70 local pgTAP tests passed.
 - **M2.2 complete:** Flutter authentication and reliability improvements are implemented; 62 automated Flutter tests and static analysis passed.
 - Android emulator launch, hosted login, profile/role recognition, logout, session persistence, and disabled-profile checks were verified by the developer. See [Development Status](docs/development-status.md) for the recorded checks and remaining work.

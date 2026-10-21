@@ -1,8 +1,42 @@
 # ChantiPoint Development Status
 
-Current slice: **C6.3b, isolated durable client note recovery foundation**, based
+Current slice: **employee six-month session history**, based on clean
+`0df77f9d878add940817272bc4e59bd4cf4eea4b`, human-created branch
+`feature/employee-session-history`. Changes remain unstaged/uncommitted.
+
+Normal employee navigation now reaches read-only history, with French details,
+retry/load-more states and Montréal formatting. A frozen local calendar window
+becomes a UTC half-open range; keyset ordering uses entry time plus UUID. Each
+server page is bounded to 21 sessions (20 visible plus lookahead), with active
+profile/employee-role evidence in the same GET. Owner/environment auth lifecycle
+checks reject mismatched rows and stale results. No attendance writes, note Save,
+v2 gate, SQL, retention or hosted resources change.
+
+The initial source migration contains `review_status` but not `employee_note`;
+neither optional projection is enabled in hosted composition without deployment
+confirmation. Missing capability is distinct from a null canonical note or error.
+See [Employee Session History](employee-session-history.md) for the exact boundary,
+query and compatibility policy.
+
+Validation (2026-10-21): **79 focused Flutter tests passed** across history,
+normal auth/navigation, legacy attendance UI and business time, including **56 new
+history tests**. Final full `flutter test --no-pub --concurrency=1`: **1562 passed**,
+zero failures/skips. `flutter analyze --no-pub`: **no issues**; `git diff --check`
+passed. Coverage includes three tied-timestamp pages, UTC/calendar/DST boundaries,
+missing/approved capabilities, malformed/foreign rows, hidden/revoked authorization,
+same-user relogin/account switch, late responses/disposal, French states and
+attendance-preserving navigation. Explicit revisits start fresh history reads.
+The first mock lacked PostgREST request metadata and its refresh JWT signature was
+not valid base64; both fixture defects were corrected without weakening checks.
+Lowest sampled C: free during final host checks was **25.65 GiB**. No Android/native
+build/runtime, emulator, Docker, hosted request or schema introspection ran. Hosted
+foreign-key/PostgREST/RLS integration and optional capabilities need approved
+development validation; no deployment verification or production readiness claim.
+
+Previous committed slice: **C6.3b, isolated durable client note recovery foundation**, based
 on clean `2b0888c3280139f3f8f5d5cf11d5df40d779f973` on the human-created
-`feature/attendance-note-client` branch. Changes remain unstaged/uncommitted.
+`feature/attendance-note-client` branch. That reviewed work is now committed as
+`0df77f9` and included in the history baseline; its recorded checks below are historical.
 
 The separate format-1 note record freezes full trusted environment/owner binding,
 captured generation and exact note request. Pending state is verified durably

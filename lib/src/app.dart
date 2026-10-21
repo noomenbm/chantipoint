@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'auth/auth_controller.dart';
 import 'attendance/attendance_controller.dart';
+import 'attendance/history/session_history.dart';
 import 'config/supabase_environment_config.dart';
 import 'ui/auth_gate.dart';
 
@@ -10,10 +11,12 @@ class ChantiPointApp extends StatelessWidget {
     super.key,
     required this.authController,
     this.attendanceControllerFactory,
+    this.historyRepositoryFactory,
   });
 
   final AuthController authController;
   final AttendanceControllerFactory? attendanceControllerFactory;
+  final SessionHistoryRepositoryFactory? historyRepositoryFactory;
 
   @override
   Widget build(BuildContext context) {
@@ -24,6 +27,7 @@ class ChantiPointApp extends StatelessWidget {
       home: AuthGate(
         authController: authController,
         attendanceControllerFactory: attendanceControllerFactory,
+        historyRepositoryFactory: historyRepositoryFactory,
       ),
     );
   }
