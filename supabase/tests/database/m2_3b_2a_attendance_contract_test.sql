@@ -69,7 +69,8 @@ select is(private.attendance_write_contract(), 1, 'deployment starts in legacy m
 select is((select count(*)::int from information_schema.columns where table_schema = 'public'
   and table_name = 'work_sessions' and column_name = 'employee_note_version'), 0, 'no deferred note version added');
 select is((select count(*)::int from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-  where n.nspname = 'public' and p.proname like '%employee_note%'), 1, 'M2.3b.2b adds only the dedicated employee-note RPC');
+  where n.nspname = 'public' and p.proname like '%employee_note%'), 2,
+  'only compatible unkeyed and settled employee-note RPCs; no extra overloads');
 select is((select count(*)::int from pg_proc p join pg_namespace n on n.oid = p.pronamespace
   where n.nspname = 'public' and p.proname in ('check_in', 'check_out', 'check_in_v2', 'check_out_v2')), 4,
   'exactly one signature per exposed attendance RPC; no overload bypass');

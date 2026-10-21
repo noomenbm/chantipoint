@@ -202,14 +202,16 @@ Planned V1 account flow:
 
 ## Local Validation Commands
 
-For repeat local validation, first inspect the existing database and migration state. Once the database-only service is deliberately running, apply only pending local migrations without resetting data, then run all four pgTAP files:
+For repeat local validation, first inspect the existing database and migration state. Once the database-only service is deliberately running, apply only pending local migrations without resetting data, then run all five pgTAP files:
 
 ```powershell
 supabase migration up --local
 supabase test db
 ```
 
-These commands passed during M2.3b.2b validation (664 pgTAP assertions, zero failures); all four migrations are already applied locally. Do not reset the database without explicit approval. If it is stopped, use only already available local resources for a deliberate database-only start; do not pull images or start the full stack for this validation. Keep C: above the 5 GB threshold. Stop local services when finished, preserving the database volume.
+Latest C6.3a local validation passed 761 pgTAP assertions (664 retained + 97 new), zero failures; five migrations are recorded locally, including `20261021000100_settled_employee_note_operations.sql`. Seven real overlapping settled-note scenarios passed 36 assertions via `python -B supabase/tests/integration/m2_3b_2b_notes_concurrency_test.py --settled`; this mode does not change the gate. Final local gate is 1, all nine checked tables are empty, and database/Docker are stopped with the original volume retained. The new contract is server-only; Save remains disabled. See [Backend Contract](attendance-backend-contract.md#c63a-settled-note-operations-server-only) for signatures, evidence privacy, client durability and unkeyed-writer retirement gates, and [Development Status](development-status.md) for the VM clock interruption/retry.
+
+Do not reset the database without explicit approval. If it is stopped, use only already available local resources for a deliberate database-only start; do not pull images or start the full stack for this validation. Keep C: above the 5 GB threshold. Stop local services when finished, preserving the database volume.
 
 Do not run `supabase link`, `supabase db push`, or any hosted mutation without explicit human approval for that operation.
 

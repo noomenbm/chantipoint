@@ -1,8 +1,66 @@
 # ChantiPoint Development Status
 
-Current slice: **M2.3c.C6.2, note visibility with the authorized safe fallback**,
+Current slice: **C6.3a, settled replayable active-note SERVER contract**, based on
+clean `69746df8cd2c00bc0a22505e3d1381053b9841b5` on the human-created
+`feature/attendance-note-contract` branch. Work remains unstaged/uncommitted.
+
+Forward migration `20261021000100_settled_employee_note_operations.sql` adds
+`save_employee_note` and private terminal operation evidence, without retaining
+note text/history. Existing profile locking serializes original/replay and
+checkout. Original-first commits applied evidence; replay-first fences the key
+without a note write. Both waiting and late originals then return non-applied.
+Closed sessions cannot be edited; original terminal receipts remain replayable
+to authorized owners. Changed inputs conflict. The unkeyed RPC is retained and
+is explicitly outside this fence; its retirement/draining is a cutover gate.
+
+The server-only boundary leaves Flutter/Save, auth, scoped transport, attendance
+RPC keys/receipts/final-note intent, journal storage/recovery and live routes
+unchanged. No hosted operation or deployment-gate activation. Separate durable
+pending-note storage, shared client coordination, approved deployment, unkeyed-
+writer fencing, privacy/backup and anti-replay-safe retention remain outstanding.
+C6.3a validation (2026-10-21 UTC):
+
+- Only the new forward migration applied via `supabase migration up --local` to
+  the retained database. Before: four migrations, gate 1, all eight checked
+  application/Auth tables empty. No reset, data/volume replacement or image pull.
+- Focused new pgTAP suite: **97/97 passed**. Final full `supabase test db --local`:
+  **761/761 passed**, five suites, zero failures (664 retained + 97 new).
+  The old RPC-inventory assertion now requires two note RPCs instead of one;
+  no authorization, row constraint, timestamp or attendance assertion was weakened.
+- `python -B supabase/tests/integration/m2_3b_2b_notes_concurrency_test.py --settled`:
+  **7 real overlapping scenarios / 36 assertions passed**. Each second request
+  was observed waiting on a lock before the first committed/rolled back. Covers
+  both original/replay orders, conflicts, both note/checkout orders, original
+  rollback and fence rollback. Uses the enabled legacy checkout for committed
+  overlap; existing rollback-only pgTAP covers v2 atomic final-note behavior.
+  No committed or persistent v2-gate activation, including in this harness.
+- Initial full validation also encountered an existing attendance constraint:
+  checkout time was about 31 seconds before check-in. A later concurrency run
+  encountered the same constraint after passing both key/replay orderings.
+  Host/database UTC samples differed by about 31 seconds, and pg_prove reported
+  a negative elapsed time. A clean database/Docker restart aligned the clocks;
+  the unchanged concurrency checks and final full suite then passed. No system
+  clocks, test timestamps or production constraints were altered. The underlying
+  VM clock cause remains undiagnosed; recurrence needs environment investigation.
+- Final state: **five migrations**, gate **1**, all **nine** checked tables empty
+  (including new operation evidence). Only checked-new fictional harness fixtures
+  were deleted; SQL fixtures rolled back. Original five public attendance/unkeyed
+  RPC definitions have identical before/after SHA-256 hashes. The new function
+  body matches its migration exactly, allowing only CRLF/LF equivalence.
+  The CLI-created pgTAP extension was removed without CASCADE, restoring its
+  initial absence. PostgreSQL stopped cleanly (exit 0); Docker Desktop stopped,
+  original container/volume retained, existing **768 MiB** DB memory cap unchanged.
+- Resource checks: initially **18.84 GiB C: / 22.68 GiB E:** and **0.48 GiB RAM**
+  available; startup waited until **23.80 GiB C: / 2.36 GiB RAM**. Lowest sampled
+  running-service C: was **22.16 GiB**, above proactive 5.5 GiB / stop 5 GiB guards.
+  After shutdown: **23.14 GiB C: / 22.68 GiB E:**, available RAM **1.14 GiB**.
+  Database tests and concurrency ran sequentially. No emulator/Gradle/Flutter
+  tests or analysis: Flutter is unchanged. No downloads, destructive cleanup or OS settings
+  changes. `git diff --check` and new-file whitespace/newline checks passed.
+
+Previous committed slice: **M2.3c.C6.2, note visibility with the authorized safe fallback**,
 based on clean **`fbc5665d6d4761e457bf9f90443a12100347243c`** on the human-created
-`feature/attendance-session-notes` branch. Changes remain unstaged/uncommitted.
+`feature/attendance-session-notes` branch. It is included in the C6.3a baseline.
 
 The isolated employee screen now has a prominent canonical `Note de la session`,
 a disabled `Enregistrer la note` action with availability guidance, and a

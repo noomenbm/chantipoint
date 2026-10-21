@@ -14,6 +14,35 @@ Reuse `session_events.event_type`, `reason_code`, `notes`, `source`, `work_sessi
 
 Retain `checkout_source`. Retain `checkout_reason_code` in this migration too, despite its approved removal from the target: actual historical values and closure-event consistency must be audited before a later cleanup migration.
 
+## C6.3a server-only settled note contract
+
+`save_employee_note(uuid,text,text,text,boolean)` adds an independent, keyed
+active-note operation; it is absent from Flutter composition. It reuses the
+existing deployment/profile/role/company/session lock order. The profile lock
+serializes original and replay requests before evidence lookup. Original-first
+commit produces `applied`; replay-first commit produces a durable
+`not_applied/replay_fenced`, preventing waiting and later originals from writing.
+A new original for an owned closed session settles `not_applied/session_closed`.
+Matching requests return the original terminal record, never reapply historical
+text. Changed inputs conflict; authorization errors stay unresolved to the client.
+
+Mutation and terminal evidence are one transaction. Evidence in the private RLS
+table has no client grants/policies and no historical note text/action. It binds
+Auth/profile/company/session, operation key and exact-intent fingerprint, plus
+outcome/reason/time. SHA-256 is not anonymization; metadata access, retention and
+anti-replay-safe retirement require approval. No evidence pruning is implemented.
+
+The unkeyed RPC remains compatible and can independently overwrite a note; its
+retirement/fencing and draining remain pre-activation work. Checkout keeps its
+immutable note intent, keys, receipts and journal rules. An applied note receipt
+proves that operation, not current note equality or worked hours. The later client
+still needs separate encrypted durable pending-note storage and shared save/
+reconcile/checkout gates, frozen owner/generation/session and stale-publication
+guards. C6.2 Save stays disabled. No live-controller wiring, attendance v2 gate
+change, hosted deployment, legacy-file migration activation or Flutter changes are included.
+See [RPC contract](attendance-backend-contract.md#c63a-settled-note-operations-server-only)
+for exact responses, locking, errors, privacy and recovery requirements.
+
 ## C6.2 note UI and explicit standalone-save fallback
 
 The isolated C5 screen has a prominent `Note de la session` section with the
@@ -45,8 +74,9 @@ earlier unseen write to commit after the gate is released; ordinary read or
 replay miss is insufficient. Preserve frozen full binding/generation/session/text
 and any uncertain result through restart before enabling another write/checkout.
 This concerns operation recovery, not an employee note-edit history feature.
-Those contracts and their local database/concurrency/native tests are deferred;
-no SQL or native storage is changed in this fallback. Production deployment,
+That was the C6.2 boundary: no SQL or native storage changed in its fallback.
+C6.3a now supplies the separate server contract above; client storage/coordination
+and native tests remain deferred. Production deployment,
 composition, writer fencing and privacy/backup gates remain in force.
 
 Own-session history for the preceding six months is a future read-only,

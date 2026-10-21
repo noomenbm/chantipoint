@@ -154,7 +154,145 @@ Every attendance writer takes shared transaction advisory lock `(174811, 2)`. A 
 
 Flutter still cannot parse `location_unverified`, accept factory names during reconciliation, persist GPS in journal version 1, or check out all contexts. Upgrade those paths and reconcile/drain old journals before cutover. Do not blindly convert, discard or resubmit an old pending command with a new payload/key. Real-location journals need strict version/owner/environment binding, device-protected encryption, backup/log exclusion and an approved retention/recovery policy before real employee use. No such client changes are implemented here.
 
-## Employee Notes — M2.3b.2b
+## C6.3a settled note operations (server only)
+
+Forward migration: `20261021000100_settled_employee_note_operations.sql`. No earlier
+migration, attendance RPC/key/receipt/hash, final-note intent, journal rule,
+Flutter client or hosted resource changes. The deployment gate stays 1. This
+endpoint is independent of that gate; it does not enable Save or client cutover.
+
+```sql
+public.save_employee_note(
+  p_work_session_id uuid,
+  p_operation_key text,
+  p_note_action text,
+  p_employee_note text,
+  p_replay_only boolean default false
+) returns jsonb
+```
+
+The first four arguments are required. `replace` requires non-null text (including
+empty text); `clear` requires null. There is no standalone preserve operation;
+replacing with the unchanged value is allowed as its own identified operation.
+The limit is 1,000 Unicode code points, with exact spaces/combining sequences and
+no normalization. Keys are 8–160 characters with no leading/trailing ASCII spaces,
+never trimmed. Freeze and reuse original owner, session, key, action and text.
+
+Every response has exactly nine fields:
+
+```json
+{
+  "note_contract_version": 1,
+  "operation_key": "fictional-note-operation-001",
+  "employee_profile_id": "<original employee profile>",
+  "company_id": "<original company>",
+  "session_id": "<original session>",
+  "request_fingerprint": "<64 lowercase hexadecimal characters>",
+  "outcome": "applied",
+  "reason": null,
+  "settled_at": "<original server timestamp in UTC>"
+}
+```
+
+Note contract **1** is separate from attendance contract 2. The response never
+contains note text/action, location or attendance confirmation. Replay returns
+the original terminal fields, fingerprint and time, not the current note.
+
+| First serialized request for employee/key | Outcome | Reason | Mutation |
+| --- | --- | --- | --- |
+| Original, owned active session | `applied` | null | Exact replacement or clear, atomic with evidence. |
+| Replay-only, no completed operation | `not_applied` | `replay_fenced` | No note write; durably consume key against late originals. |
+| Original, owned closed session | `not_applied` | `session_closed` | No note write; durably consume key. |
+| Matching existing operation, either flag, active or closed | Original outcome | Original reason | None; return original receipt. |
+
+There is **no not_found state**. Changed valid inputs under a used key fail
+`23505 / note_operation_conflict` without mutation. Invalid inputs fail `22023`;
+absent/foreign sessions and missing/inactive employee authorization fail `42501`.
+Anonymous and administrator-only callers cannot save/replay. Authorized owners
+can recover receipts after closure, but cannot edit closed sessions. A suspended
+company permits annotation of an existing active session, matching the old RPC.
+Authorization, transport, transaction and replay errors are not terminal outcomes.
+
+### Serialization and checkout
+
+Lock order: shared deployment advisory `(174811,2)` -> existing
+`attendance_employee()` profile `FOR UPDATE` -> employee role `FOR SHARE` ->
+company `FOR SHARE` -> exact owned session `FOR UPDATE` -> evidence lookup/insert.
+The profile lock serializes all same-employee operations **before** any lookup,
+including absent-key replays. The evidence primary key is employee/profile plus
+operation key, across sessions. Company, Auth identity and session are checked
+and fingerprint-bound. Identical key text for another employee is independent;
+there is no cross-employee key lock, conflict or existence lookup.
+
+Original-first commit makes replay return the original applied receipt. Replay-
+first commit installs a non-applied fence observed by waiting and late originals.
+Mutation and evidence commit in one transaction; evidence failure rolls back the
+note. Original rollback lets a waiting replay fence; fence rollback lets a waiting
+original apply. Default Read Committed sees evidence after waiting. Higher
+isolation, serialization/deadlock errors or aborted transactions can fail instead
+of returning an outcome: retain uncertainty and retry the frozen operation. See
+PostgreSQL 17 [transaction isolation](https://www.postgresql.org/docs/17/transaction-iso.html)
+and [row locking](https://www.postgresql.org/docs/17/explicit-locking.html).
+
+Save and checkout retain the existing profile/session lock order. Save first:
+preserve checkout keeps that serialized note; explicit final replace/clear wins
+atomically. Checkout first: a new original settles `session_closed`; prior applied
+operations remain replayable without changing the final note. Lost checkout
+responses use unchanged attendance recovery/keys; lost note responses use this
+operation. Canonical note equality or an ordinary SELECT cannot prove settlement.
+
+### Evidence, privacy and remaining gates
+
+`private.employee_note_operations` retains only employee/company/Auth/session
+identity, exact key, fingerprint, terminal outcome/reason and settlement time.
+Constraints enforce key/digest/terminal shapes, with Auth and full session-owner
+foreign keys using RESTRICT. RLS is enabled, with no client policies/table grants,
+including for administrators. The SECURITY DEFINER RPC has empty search_path,
+UTC output and no caller-supplied company/employee identity. Trusted privileged
+operators remain outside the client threat model; deliberate evidence removal
+is not protected against.
+
+SHA-256 frames version, operation, key, Auth/profile/company, session, action and
+exact nullable text as JSONB; replay mode is excluded. It fingerprints semantic
+intent, not lexical HTTP JSON. No historical note text/action, edit events or note
+versions are stored. This still creates personal operation metadata. Hashes are
+not anonymization: an evidence holder can test candidate notes. Privacy review,
+access/log/backup protections and a retention duration are production dependencies.
+No automatic deletion/TTL/cascade is added. Pruning evidence can permit old
+originals to write again; safe retirement requires an independent anti-replay
+protocol and explicit approval. Retention is not yet decided.
+
+`update_employee_note(uuid,text)` remains callable and unchanged. It does not
+consult keyed fences and can overwrite notes independently; keyed receipt replay
+never undoes that later edit. A fence blocks only that keyed original, not all
+writers. Activation requires reviewed retirement/fencing of unkeyed writers and
+draining their submitted work under the deployment lock. No silent revocation.
+
+The later client must supply separate encrypted durable pending-note storage,
+trusted environment/owner/generation/session binding, persistence before send,
+scoped one-attempt HTTP, validated durable receipt/readback, and a shared save/
+reconcile/checkout gate through settlement and restart. Auth changes suppress UI
+publication, never retarget work. Persist terminal proof before releasing the gate;
+read canonical state afterward for the **current** note. Network failure does not
+prove rollback. Keep standalone notes outside the attendance journal. Save stays
+disabled; hosted deployment, v2 cutover, client durability, writer retirement and
+privacy/backup/retention approvals remain outstanding.
+
+C6.3a local validation: the single forward migration applied to the retained
+database without reset or image pulls. Focused pgTAP **97 passed**; final full
+pgTAP **761 passed** (664 retained + 97 new). The `--settled` concurrency mode
+passed **7 overlapping scenarios / 36 assertions**, using the enabled legacy
+checkout; both request orders and both rollback orders were observed waiting.
+The gate definition remained unchanged throughout that harness. Existing v2
+final-note tests run rollback-only in pgTAP, not as a committed v2 cutover.
+Before/after hashes of the five existing public attendance/unkeyed RPCs match;
+the new function body matches its source. Five migrations, gate 1 and empty
+application/operation tables are retained locally; database/Docker are stopped.
+See [Development Status](development-status.md) for the initial inventory-test
+correction, clock-discontinuity failures and successful unchanged reruns after a
+clean local Docker restart. No Flutter, Android or hosted validation is claimed.
+
+## Employee Notes — M2.3b.2b (compatible unkeyed contract)
 
 ```sql
 public.update_employee_note(
@@ -181,7 +319,7 @@ Supplying text with preserve/clear, NULL with replace, an unknown/NULL action, o
 
 The final note and closure use one UPDATE under the session lock, in the same transaction as the event, evidence and stored command hash. Any failure rolls back all of them. Replay validates the original full payload, including note action/text, then returns the original receipt without applying the note again. Changed intent/text conflicts. A successful checkout leaves the final note read-only.
 
-Standalone saves have no idempotency key, independent command journal, version check or history. Active saves serialize; the last serialized save wins, including a delayed retry of older text. Repeating the same value is allowed but is not exactly-once acknowledgment. After an uncertain response, an ordinary reload or matching note text cannot establish settlement: the earlier request may execute after that read. Do not blindly replay or enable another save/checkout on that evidence. There is no server mechanism to recover overwritten text or identify a specific note operation. C6.2 therefore keeps standalone Save disabled under its authorized fallback. Enabling it requires a reviewed server operation identity/hash/replay/terminal-settlement contract and separate durable owner/session-scoped client uncertainty storage and checkout coordination, outside the attendance command journal. None is implemented here. Freeze final checkout note intent/text with the entire immutable checkout payload/key in its existing protected journal. A note save actually serialized before preserve checkout is kept; a save serialized after closure fails. These database ordering facts do not prove that a pending network request has settled and do not weaken attendance checkout idempotency.
+Standalone saves have no idempotency key, independent command journal, version check or history. Active saves serialize; the last serialized save wins, including a delayed retry of older text. Repeating the same value is allowed but is not exactly-once acknowledgment. After an uncertain response, an ordinary reload or matching note text cannot establish settlement: the earlier request may execute after that read. Do not blindly replay or enable another save/checkout on that evidence. There is no server mechanism to recover overwritten text or identify a specific note operation. C6.2 therefore keeps standalone Save disabled under its authorized fallback. Enabling it requires a reviewed server operation identity/hash/replay/terminal-settlement contract and separate durable owner/session-scoped client uncertainty storage and checkout coordination, outside the attendance command journal. C6.3a now supplies the separate server contract above; durable client storage/coordination remain unimplemented. Freeze final checkout note intent/text with the entire immutable checkout payload/key in its existing protected journal. A note save actually serialized before preserve checkout is kept; a save serialized after closure fails. These database ordering facts do not prove that a pending network request has settled and do not weaken attendance checkout idempotency.
 
 No Flutter note UI, journal extension, hosted deployment or v2 activation is implemented in this slice.
 

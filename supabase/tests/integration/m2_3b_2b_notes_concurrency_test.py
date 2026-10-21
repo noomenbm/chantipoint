@@ -172,4 +172,11 @@ commit;""")
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    if sys.argv[1:] == ['--settled']:
+        import c6_3a_notes_concurrency_test
+        c6_3a_notes_concurrency_test.main()
+    elif sys.argv[1:]:
+        raise SystemExit('Use no arguments for legacy scenarios, or --settled for C6.3a.')
+    else:
+        main()
