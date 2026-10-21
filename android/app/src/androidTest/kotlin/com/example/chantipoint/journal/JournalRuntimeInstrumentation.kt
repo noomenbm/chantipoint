@@ -33,6 +33,8 @@ class JournalRuntimeInstrumentation : Instrumentation() {
     private var failed = true
     private lateinit var engine: FlutterEngine
     private lateinit var journal: JournalChannel
+    private lateinit var notes: JournalChannel
+    private lateinit var noteFixtures: SessionNoteRuntimeFixtures
     private lateinit var control: MethodChannel
     private var stage = "namespace"
     private val migrationFault = AtomicReference<String?>(null)
@@ -50,6 +52,8 @@ class JournalRuntimeInstrumentation : Instrumentation() {
             check(targetContext.packageName == "com.example.chantipoint.journalvalidation")
             check(phase in setOf("fresh", "restart"))
             stage = "fixture-reset"
+            noteFixtures = SessionNoteRuntimeFixtures(targetContext)
+            if (phase == "fresh") noteFixtures.clear()
             if (phase == "fresh") clearFictionalFixtures()
             stage = "engine-setup"
             runOnMainSync {
@@ -82,6 +86,8 @@ class JournalRuntimeInstrumentation : Instrumentation() {
                     }
                 })
                 control = MethodChannel(engine.dartExecutor.binaryMessenger, "chantipoint/journal_test_control")
+                notes = JournalChannel(targetContext, engine.dartExecutor.binaryMessenger,
+                    verificationIo = noteFixtures.io, noteMode = true)
                 control.setMethodCallHandler { call, result ->
                     try {
                         if (call.method == "finish") {
@@ -91,7 +97,8 @@ class JournalRuntimeInstrumentation : Instrumentation() {
                             report.putString("stream", "Journal $phase: ${args["passed"]} passed; ${failures.size} failed. ${failures.joinToString()}")
                             result.success(null)
                             complete.countDown()
-                        } else result.success(fixture(call))
+                        } else if (call.method.startsWith("note")) result.success(noteFixtures.handle(call))
+                        else result.success(fixture(call))
                     } catch (_: Exception) {
                         result.error("fixture_failure", "Fictional fixture operation failed.", null)
                     }
@@ -108,6 +115,7 @@ class JournalRuntimeInstrumentation : Instrumentation() {
             if (::engine.isInitialized) runOnMainSync {
                 control.setMethodCallHandler(null)
                 journal.detach()
+                if (::notes.isInitialized) notes.detach()
                 engine.destroy()
             }
             finish(if (failed) Activity.RESULT_CANCELED else Activity.RESULT_OK, report)

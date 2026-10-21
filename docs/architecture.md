@@ -14,6 +14,31 @@ Reuse `session_events.event_type`, `reason_code`, `notes`, `source`, `work_sessi
 
 Retain `checkout_source`. Retain `checkout_reason_code` in this migration too, despite its approved removal from the target: actual historical values and closure-event consistency must be audited before a later cleanup migration.
 
+## C6.3b isolated durable note client foundation
+
+`SessionNoteCoordinator`, a separate format-1 pending-note record and
+`AndroidSessionNoteStorage` provide note save/replay recovery without enabling
+the production Save action. The existing scoped HTTP adapter implements a typed
+note port with strict original-receipt validation; it reuses pinned authority and
+bounded one-attempt HTTP only, never attendance DTOs/commands for note transport.
+
+Pending intent is durably persisted before POST. Uncertainty/restart uses replay-
+only original intent; terminal proof is persisted/verified before canonical read.
+The shared queue and durable CAS checkout reservations serialize cooperating note,
+recovery and checkout callers. A reservation binds a digest of the complete C3
+command; its payload and receipt remain solely in the attendance journal. C3
+sequencing/consumption rules are unchanged. A parent context spans C3's separately
+issued same-generation child and native reservation cleanup. Late proof survives
+auth invalidation while stale reads/publication are suppressed.
+
+Notes use a distinct no-backup directory, AAD domain, per-binding Keystore keys,
+schema and channel over existing native IO/crypto primitives. Lost keys, missing
+known ciphertext, corrupt records and ambiguous sidecars block without deletion
+or reset. No note cleanup/promotion policy or production wiring is introduced.
+Unknown checkout preparation/consumption boundaries also remain blocked for review.
+See [Session Note Recovery](session-note-recovery.md) for state transitions,
+restart authorization, scope, native limitations and remaining activation gates.
+
 ## C6.3a server-only settled note contract
 
 `save_employee_note(uuid,text,text,text,boolean)` adds an independent, keyed

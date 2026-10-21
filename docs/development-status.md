@@ -1,8 +1,77 @@
 # ChantiPoint Development Status
 
-Current slice: **C6.3a, settled replayable active-note SERVER contract**, based on
+Current slice: **C6.3b, isolated durable client note recovery foundation**, based
+on clean `2b0888c3280139f3f8f5d5cf11d5df40d779f973` on the human-created
+`feature/attendance-note-client` branch. Changes remain unstaged/uncommitted.
+
+The separate format-1 note record freezes full trusted environment/owner binding,
+captured generation and exact note request. Pending state is verified durably
+before POST; uncertainty/restart uses replay-only original intent. Strict complete
+terminal receipts are persisted/verified before canonical SELECT. Late receipts
+survive auth invalidation without stale reads/publication. No credentials persist.
+The typed note port reuses existing pinned scoped HTTP machinery, not attendance
+commands/DTOs. No hosted requests, SQL changes or v2-gate activation.
+
+Application-lifetime note coordination combines an isolate queue with durable CAS
+checkout reservations. The reference includes a digest of the complete original
+C3 command; full attendance payload/receipts remain solely in that journal. A
+parent context spans C3's separate same-generation child and reservation cleanup.
+Existing C3 sequencing/recovery rules remain unchanged. Missing/prepared/consumed
+or mismatched C3 evidence behind a leftover checkout reservation stays blocked for
+review, including death before C3 preparation. No reset or guessed gate release.
+
+Android reuses crypto/AtomicFile/locking/sync primitives with a separate codec,
+channel, no-backup directory, AAD and per-binding Keystore aliases. Missing known
+ciphertext/key, corruption, and sidecars block without cleanup. Channel registration
+alone does no IO/network work. Normal main/AuthGate/live attendance and the disabled
+Save button are unchanged. No production workflow composition or legacy migration.
+
+Host checks: **203 focused tests passed**, including **107 new tests** across note
+models, coordinator, HTTP and Android-channel simulations. Full serial
+`flutter test --no-pub --concurrency=1`: **1506 passed**, zero failures/skips.
+`flutter analyze --no-pub`: **no issues**. Host RAM/disk are not native durability
+or server evidence. Faults cover each pending/terminal/checkout reservation/release
+transition, lost replies, restart, original/replay/fence simulations, exact text,
+identity changes, parent/child ownership, conflicting requests and late receipts.
+
+Native validation (2026-10-21 UTC), separate from host simulations:
+
+- Isolated `:app:assembleDebug :app:assembleDebugAndroidTest` passed using
+  `journalValidation=true`, `test/device/journal_runtime_probe.dart`, Android x64,
+  one worker, no daemon and the existing 1 GiB Gradle heap/512 MiB metaspace limits.
+  The first offline attempt could not resolve pinned Kotlin DSL 6.4.2 because its
+  cache was empty. The retry reused installed Gradle 9.3.1/SDK and fetched missing
+  pinned dependencies to E:, without version upgrades or SDK-download requests.
+- Existing Pixel_9 emulator, **API 37 / x86_64**: fresh **70 passed, 0 failed**;
+  restart **18 passed, 0 failed**. These include **15 new note fresh checks** and
+  **7 new note restart checks**, alongside unchanged attendance/migration checks.
+  Only `com.example.chantipoint.journalvalidation` was force-stopped between
+  phases; data and keys were retained. Complete expected original record bytes
+  verified binding, generation, key, request, phase, revision and raw receipt.
+- Native checks cover encrypted no-backup placement/readback, stale CAS and frozen
+  intent, retained post-finish/readback failures, injected file/directory-sync
+  checkpoints, failed initialization, tamper, interrupted AtomicFile artifacts,
+  missing key/ciphertext and schema separation. Checkpoint exceptions simulate
+  failures; they do not prove actual kernel fsync or cleanup-failure behavior.
+- Heavy phases ran sequentially. Lowest sampled C: free: **26.91 GiB host**,
+  **26.82 GiB build**, **25.30 GiB emulator/runtime**, above the 5.5 GiB guard.
+  Emulator reported 4,007,040 KiB guest memory despite a 1,536 MiB launch request;
+  host available RAM briefly fell to about 0.34 GiB. Both phases completed within
+  their limits, and the emulator was stopped. Docker was not started.
+
+No hosted/server integration, physical device, power interruption, older Android
+AtomicFile, actual multi-process contention, permanent key invalidation or
+backup/device-transfer test ran. No power-loss durability claim is made.
+
+See [Session Note Recovery](session-note-recovery.md) for protocol/state transitions,
+explicit restart reauthorization, native storage policy and limitations. Remaining
+gates include blocked checkout-window resolution, trusted workflow integration,
+hosted review/deployment, unkeyed-writer retirement/fencing, privacy/backup/retention
+approval and enabling Save in a later reviewed slice.
+
+Previous committed slice: **C6.3a, settled replayable active-note SERVER contract**, based on
 clean `69746df8cd2c00bc0a22505e3d1381053b9841b5` on the human-created
-`feature/attendance-note-contract` branch. Work remains unstaged/uncommitted.
+`feature/attendance-note-contract` branch. It is included in the C6.3b baseline.
 
 Forward migration `20261021000100_settled_employee_note_operations.sql` adds
 `save_employee_note` and private terminal operation evidence, without retaining

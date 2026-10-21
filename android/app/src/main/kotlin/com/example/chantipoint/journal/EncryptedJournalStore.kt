@@ -27,10 +27,12 @@ internal fun interface JournalVerificationIo {
 }
 
 /** Isolated storage. Nothing instantiates it until an explicit channel call. */
-internal class EncryptedJournalStore(context: Context) {
+internal class EncryptedJournalStore(context: Context, private val noteBinding: SlotBinding? = null,
+    private val noteIo: JournalVerificationIo = JournalVerificationIo { }) {
     private val context = context.applicationContext
     private val packageName = context.packageName
-    private val alias = "$packageName.attendance_journal.aes.v1"
+    private val alias = if (noteBinding == null) "$packageName.attendance_journal.aes.v1"
+        else "$packageName.session_note_operations.${noteBinding.slotId}.aes.v1"
     private val random = SecureRandom()
 
     companion object {
@@ -49,11 +51,12 @@ internal class EncryptedJournalStore(context: Context) {
 
     fun read(binding: SlotBinding): ByteArray? = locked { root, files ->
         // Key absence must not conceal ciphertext in a different owner's slot.
-        val key = existingKey(files.isNotEmpty())
+        val key = existingKey(keyArtifacts(files).isNotEmpty())
         readStored(root, binding, files, key)
     }
 
     fun inspectRecovery(binding: SlotBinding): RecoveryInspection = locked { root, files ->
+        requireAttendance()
         inspectRecovery(root, binding, files, existingKey(files.isNotEmpty()))
     }
 
@@ -64,9 +67,9 @@ internal class EncryptedJournalStore(context: Context) {
      */
     fun verifyRecord(binding: SlotBinding, expected: ByteArray,
                      io: JournalVerificationIo = JournalVerificationIo { }): ByteArray {
-        JournalHeader.inspect(expected, binding)
+        inspectRecord(expected, binding)
         return locked { root, files ->
-            val key = existingKey(files.isNotEmpty())
+            val key = existingKey(keyArtifacts(files).isNotEmpty())
             val actual = readStored(root, binding, files, key) ?: problem("journal_command_conflict")
             if (!MessageDigest.isEqual(actual, expected)) problem("journal_revision_conflict")
             io.checkpoint("record_file_sync")
@@ -84,6 +87,7 @@ internal class EncryptedJournalStore(context: Context) {
     /** Fresh barrier and optional validation-only cleanup, all under the SAME locks. */
     fun verifyMigrationTarget(binding: SlotBinding, expected: ByteArray, sourceSnapshot: String? = null,
                               io: LegacyMigrationIo = RealLegacyMigrationIo): ByteArray {
+        requireAttendance()
         // Gate BEFORE locks, directory creation, key access or source inspection.
         if (sourceSnapshot != null) requireMigrationValidationNamespace(packageName)
         return locked { root, files ->
@@ -106,6 +110,7 @@ internal class EncryptedJournalStore(context: Context) {
     /** Separate, verification-only completed-record barrier. No source deletion. */
     fun verifyCompletedMigration(binding: SlotBinding, expected: ByteArray,
                                  io: LegacyMigrationIo = RealLegacyMigrationIo): ByteArray {
+        requireAttendance()
         requireMigrationValidationNamespace(packageName)
         requireCompletedMigration(expected, binding)
         return locked { root, files ->
@@ -124,6 +129,7 @@ internal class EncryptedJournalStore(context: Context) {
 
     fun normalizeRecovery(binding: SlotBinding, snapshot: String, validatedRecord: ByteArray): ByteArray =
         locked { root, files ->
+            requireAttendance()
             val key = existingKey(files.isNotEmpty())
             // Reopen and authenticate every candidate under the same locks as cleanup.
             val inspection = inspectRecovery(root, binding, files, key)
@@ -161,10 +167,10 @@ internal class EncryptedJournalStore(context: Context) {
 
     fun compareAndSwap(binding: SlotBinding, expectedRevision: Long, expectedKey: String?, replacement: ByteArray): Long =
         locked { root, files ->
-            val next = JournalHeader.inspect(replacement, binding)
-            val key = existingKey(files.isNotEmpty())
+            val next = inspectRecord(replacement, binding)
+            val key = existingKey(keyArtifacts(files).isNotEmpty())
             val currentBytes = readStored(root, binding, files, key)
-            val current = currentBytes?.let { JournalHeader.inspect(it, binding) }
+            val current = currentBytes?.let { inspectRecord(it, binding) }
             if ((current?.revision ?: 0L) != expectedRevision || current?.key != expectedKey ||
                 expectedRevision >= MAX_REVISION || next.revision != expectedRevision + 1) {
                 problem("journal_revision_conflict")
@@ -176,8 +182,9 @@ internal class EncryptedJournalStore(context: Context) {
             }
             // Inspection above is under the SAME process/file lock as key creation.
             // Never regenerate a missing key over any base, backup or new file.
-            val writeKey = key ?: createKey(files)
+            val writeKey = key ?: createKey(keyArtifacts(files))
             val encrypted = encrypt(replacement, binding, writeKey)
+            if (noteBinding != null) noteIo.checkpoint("note_before_write")
             val atomic = AtomicFile(File(root, name))
             // use closes again even if finishWrite swallowed a close failure.
             // It preserves the original exception if closing also fails.
@@ -188,10 +195,12 @@ internal class EncryptedJournalStore(context: Context) {
                 // finishWrite can LOG failed sync/rename without throwing. It is
                 // not our success boundary. Do not roll back after this call.
                 atomic.finishWrite(stream)
+                if (noteBinding != null) noteIo.checkpoint("note_after_finish")
                 syncDirectory(root)
+                if (noteBinding != null) noteIo.checkpoint("note_readback")
                 val after = inspectFiles(root)
                 val readback = readStored(root, binding, after, writeKey) ?: problem("journal_storage_failure")
-                val header = JournalHeader.inspect(readback, binding)
+                val header = inspectRecord(readback, binding)
                 if (header.revision != next.revision || !MessageDigest.isEqual(readback, replacement)) {
                     problem("journal_storage_failure")
                 }
@@ -199,7 +208,8 @@ internal class EncryptedJournalStore(context: Context) {
             }
         }
 
-    private fun protectImmutableContent(current: JournalHeader?, next: JournalHeader) {
+    private fun protectImmutableContent(current: StorageHeader?, next: StorageHeader) {
+        if (noteBinding != null) { protectNoteTransition(current, next); return }
         if (current == null || current.command == null) return
         if (next.command == null) {
             // Canonical-state/consumption attestations stay in the Dart core.
@@ -215,9 +225,18 @@ internal class EncryptedJournalStore(context: Context) {
 
     private fun filename(binding: SlotBinding) = "slot_${binding.slotId}.bin"
 
+    private fun requireAttendance() { if (noteBinding != null) problem("journal_unsupported_format") }
+    private fun inspectRecord(bytes: ByteArray, binding: SlotBinding): StorageHeader {
+        if (noteBinding == null) return StorageHeader.attendance(bytes, binding)
+        if (noteBinding != binding) problem("journal_identity_mismatch")
+        return StorageHeader.note(bytes, binding)
+    }
+    private fun keyArtifacts(files: List<File>): List<File> = if (noteBinding == null) files else
+        files.filter { it.name.removeSuffix(".new").removeSuffix(".bak") == filename(noteBinding) }
+
     private fun <T> locked(work: (File, List<File>) -> T): T = synchronized(processLock) {
         val parent = context.noBackupFilesDir.canonicalFile
-        val directory = File(parent, "attendance_journal")
+        val directory = File(parent, if (noteBinding == null) "attendance_journal" else "session_note_operations")
         if (!directory.exists()) {
             if (!directory.mkdir() && !directory.isDirectory) problem("journal_storage_failure")
         }
@@ -248,6 +267,7 @@ internal class EncryptedJournalStore(context: Context) {
     }
 
     private fun readStored(root: File, binding: SlotBinding, files: List<File>, key: SecretKey?): ByteArray? {
+        if (noteBinding != null && noteBinding != binding) problem("journal_identity_mismatch")
         val name = filename(binding)
         // AtomicFile.openRead may delete .new or overwrite base with .bak. Do
         // not allow implicit deletion/promotion of ambiguous recovery evidence.
@@ -255,7 +275,7 @@ internal class EncryptedJournalStore(context: Context) {
         if (files.none { it.name == name }) return null
         if (key == null) problem("journal_missing_key")
         val plaintext = decrypt(readContainer(File(root, name)), binding, key)
-        JournalHeader.inspect(plaintext, binding)
+        inspectRecord(plaintext, binding)
         return plaintext
     }
 
@@ -279,6 +299,9 @@ internal class EncryptedJournalStore(context: Context) {
             if (hasArtifacts) problem("journal_missing_key")
             return null
         }
+        // Per-binding note key is also a presence marker. Lost ciphertext or a
+        // failed first initialization cannot silently become a fresh empty slot.
+        if (noteBinding != null && !hasArtifacts) problem("journal_unreadable")
         // Invalid/unrecoverable keys are handled by typed channel errors; no reset.
         return store.getKey(alias, null) as? SecretKey ?: problem("journal_invalidated_key")
     }
@@ -299,7 +322,8 @@ internal class EncryptedJournalStore(context: Context) {
     }
 
     private fun aad(binding: SlotBinding): ByteArray = framed(
-        "chantipoint-journal-aad-v1", listOf(packageName, binding.slotId), listOf(CONTAINER_VERSION, KEY_VERSION),
+        if (noteBinding == null) "chantipoint-journal-aad-v1" else "chantipoint-session-note-aad-v1",
+        listOf(packageName, binding.slotId), listOf(CONTAINER_VERSION, KEY_VERSION),
     )
 
     private fun encrypt(plaintext: ByteArray, binding: SlotBinding, key: SecretKey): ByteArray {

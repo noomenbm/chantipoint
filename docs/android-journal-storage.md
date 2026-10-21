@@ -2,6 +2,27 @@
 
 C2b implements the Android backend for the [format-2 journal](secure-command-journal.md).
 
+C6.3b reuses its IO/crypto primitives for **separate format-1 session-note
+storage**, not another attendance command type. The default attendance directory,
+alias, AAD, header and pair-only recovery semantics remain unchanged. Notes use
+`noBackupFilesDir/session_note_operations`, AAD `chantipoint-session-note-aad-v1`
+and per-binding `<package>.session_note_operations.<slot SHA-256>.aes.v1` keys.
+`SessionNoteWire.kt` checks note routing/immutable transitions; Dart validates the
+complete note/receipt schema. Channel `chantipoint/secure_session_notes` exposes
+read, compareAndSwap and verifyRecordV1 only; other journal/migration APIs are
+unavailable on that channel. Registration alone creates no file/key or network work.
+
+Note key presence also marks prior slot initialization: a missing file with a
+surviving note key blocks, as do files without a key. Distinct per-binding aliases
+allow independent legitimate owners while preventing binding/ciphertext swaps.
+Note sidecars are retained and blocked; no normalization or deletion is exposed.
+The existing directory lock and CAS guard cooperating process/instance races;
+native test fault controls exist only in the isolated instrumentation source set.
+No plaintext note store, logs or backup inclusion is added. This does not resolve
+legacy plaintext backup policy or establish OEM/device-transfer/power-loss behavior.
+See [Session Note Recovery](session-note-recovery.md) and [Development Status](development-status.md)
+for the new client protocol, tested boundaries and actual C6.3b validation results.
+
 C5.2 reuses the existing phase-agnostic `verifyRecordV1` barrier to prove an exact
 empty tombstone after uncertain compaction or coordinator/app replacement. This
 adds no native API/storage/schema change. Full-byte comparison, existing locks,

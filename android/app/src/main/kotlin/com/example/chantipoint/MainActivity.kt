@@ -7,12 +7,15 @@ import com.example.chantipoint.location.ForegroundLocationChannel
 
 class MainActivity : FlutterActivity() {
     private var journalChannel: JournalChannel? = null
+    private var noteChannel: JournalChannel? = null
     private var foregroundLocation: ForegroundLocationChannel? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         journalChannel?.detach()
         journalChannel = JournalChannel(applicationContext, flutterEngine.dartExecutor.binaryMessenger)
+        noteChannel?.detach()
+        noteChannel = JournalChannel(applicationContext, flutterEngine.dartExecutor.binaryMessenger, noteMode = true)
         foregroundLocation?.detach()
         foregroundLocation = ForegroundLocationChannel(this, flutterEngine.dartExecutor.binaryMessenger)
     }
@@ -30,6 +33,8 @@ class MainActivity : FlutterActivity() {
         foregroundLocation = null
         journalChannel?.detach()
         journalChannel = null
+        noteChannel?.detach()
+        noteChannel = null
         super.cleanUpFlutterEngine(flutterEngine)
     }
 }

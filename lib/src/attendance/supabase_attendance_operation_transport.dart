@@ -8,6 +8,8 @@ import 'attendance_operation_transport.dart';
 import 'attendance_request_authority.dart';
 import 'journal/journal_command.dart';
 import 'journal/journal_json.dart';
+import 'notes/session_note_ports.dart';
+import 'notes/session_note_record.dart';
 
 enum AttendanceHttpFailureKind {
   contextInvalidated,
@@ -39,13 +41,48 @@ final class SupabaseAttendanceOperationTransport
     implements
         AttendanceOperationTransport,
         AttendanceCanonicalReader,
-        AttendanceActiveSessionQuery {
+        AttendanceActiveSessionQuery,
+        SessionNoteTransport {
   SupabaseAttendanceOperationTransport({
     required this.authority,
     required this.client,
   });
+  @override
   final AttendanceRequestAuthority authority;
   final http.Client client;
+
+  /// Separate keyed-note protocol, sharing only the pinned one-attempt HTTP
+  /// machinery. No attendance command/DTO/journal conversion or live wiring.
+  @override
+  Future<SessionNoteReceipt> saveNote(
+    AttendanceOperationIdentity identity,
+    SessionNoteCommand command, {
+    required bool replayOnly,
+  }) async {
+    if (!command.identity.binding.matches(identity.binding) ||
+        (!replayOnly && command.identity.generation != identity.generation)) {
+      throw const AttendanceHttpFailure(
+        AttendanceHttpFailureKind.scopeMismatch,
+      );
+    }
+    final scope = await _acquire(identity);
+    final text = await _send(
+      identity,
+      scope,
+      'POST',
+      '/rest/v1/rpc/save_employee_note',
+      body: command.body(replayOnly: replayOnly),
+    );
+    // Do not discard a valid late receipt after submission/auth invalidation.
+    try {
+      return SessionNoteReceipt.parse(text, command);
+    } catch (_) {
+      throw const AttendanceHttpFailure(
+        AttendanceHttpFailureKind.malformedResponse,
+      );
+    }
+  }
+
   static const responseLimit = JournalJson.payloadLimit;
   static const _columns = {
     'id',

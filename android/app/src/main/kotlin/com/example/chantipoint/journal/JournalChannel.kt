@@ -19,11 +19,12 @@ import javax.crypto.AEADBadTagException
 /** Process-scoped worker; channel lifetime never owns keys or journal contents. */
 class JournalChannel internal constructor(context: Context, messenger: BinaryMessenger,
                      private val migrationIo: LegacyMigrationIo = RealLegacyMigrationIo,
-                     private val verificationIo: JournalVerificationIo = JournalVerificationIo { }) : MethodChannel.MethodCallHandler {
+                     private val verificationIo: JournalVerificationIo = JournalVerificationIo { },
+                     private val noteMode: Boolean = false) : MethodChannel.MethodCallHandler {
     private val applicationContext = context.applicationContext
     private val active = AtomicBoolean(true)
     private val main = Handler(Looper.getMainLooper())
-    private val channel = MethodChannel(messenger, "chantipoint/secure_command_journal")
+    private val channel = MethodChannel(messenger, if (noteMode) "chantipoint/secure_session_notes" else "chantipoint/secure_command_journal")
 
     companion object {
         private val worker = ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS,
@@ -35,6 +36,9 @@ class JournalChannel internal constructor(context: Context, messenger: BinaryMes
     init { channel.setMethodCallHandler(this) }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
+        if (noteMode && call.method !in setOf("read", "compareAndSwap", "verifyRecordV1")) {
+            result.notImplemented(); return
+        }
         if (call.method !in setOf("read", "compareAndSwap", "inspectRecoveryV1", "normalizeRecoveryV1",
                 "inspectLegacySourceV1", "verifyMigrationTargetV1", "cleanupLegacySourceV1",
                 "requireMigrationValidationV1", "verifyCompletedMigrationV1", "verifyRecordV1")) {
@@ -59,7 +63,8 @@ class JournalChannel internal constructor(context: Context, messenger: BinaryMes
                 })
                 if (channelInteger(args["api_version"]) != 1L) problem("journal_unsupported_format")
                 val binding = SlotBinding.parse(args["binding"])
-                val store = EncryptedJournalStore(applicationContext)
+                val store = EncryptedJournalStore(applicationContext, if (noteMode) binding else null,
+                    if (noteMode) verificationIo else JournalVerificationIo { })
                 val response: Map<String, Any?> = if (call.method == "inspectLegacySourceV1") {
                     LegacySourceFiles(applicationContext).inspect(binding).toWire(binding)
                 } else if (call.method == "verifyRecordV1") {
