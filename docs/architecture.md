@@ -10,9 +10,49 @@ M2.3b.1 prepares `20261016000100_attendance_location_foundations.sql`: nullable 
 
 The M2.3a Flutter client is still factory-only and cannot parse `location_unverified`. In the initial legacy mode, RPCs retain their old context input and factory/external GPS restrictions. After approved v2 activation, legacy new check-in is blocked and its checkout adapter records unverified departure evidence. Schema support does not enable the revised workflow: do not expose new-context sessions to this client. M2.3b.2a implements server authority and atomic event/evidence/reason/review writes behind a legacy-mode gate; [Attendance Backend Contract](attendance-backend-contract.md) documents signatures and local validation. M2.3b.2b implements owner-only active-session note updates and atomic final-note checkout; coordinated Flutter/journal integration and cutover remain pending. Historical contexts are not retroactively GPS-verified. Current findCommand recovery also rejects non-null site descriptions, so automatic factory names and expanded payloads need a coordinated recovery change in the next stage.
 
-Reuse `session_events.event_type`, `reason_code`, `notes`, `source`, `work_sessions.review_status`, and linked `location_observations`. Keep `site_description` for workplace identity and `employee_note` for one general employee-authored note. Target note policy is owner-authorized overwrite-only saves while active, including a final edit atomic with manual checkout, then read-only. It is general business text with no edit history, note versions, correction events or revision metadata. M2.3b.2b implements note writes using the existing column; UI remains pending. Note saves share profile/role/company/session locks with attendance, use last serialized write wins, and add no note history or independent command journal. An uncertain standalone save needs reconciliation before retry; final-note checkout is hash-bound and idempotent. `geofence_enter`/`geofence_exit` are `location_observations.observation_type` values; their associated session events use the existing `location_observation` umbrella. Ordinary new attendance events need no redundant reason label. Technical reasons include permission_denied, location_services_disabled, approximate_only, accuracy_insufficient, location_timeout, provider_error, and unknown; the v2 contract also defines boundary_uncertain, location_stale and factory_configuration_missing. Development thresholds remain subject to production approval. Do not infer intent from unavailable evidence.
+Reuse `session_events.event_type`, `reason_code`, `notes`, `source`, `work_sessions.review_status`, and linked `location_observations`. Keep `site_description` for workplace identity and `employee_note` for one general employee-authored note. Target note policy is owner-authorized overwrite-only saves while active, including a final edit atomic with manual checkout, then read-only. It is general business text with no edit history, note versions, correction events or revision metadata. M2.3b.2b implements note writes using the existing column; standalone Save remains gated, while C5/C6.2 provide isolated atomic checkout-note UI. Note saves share profile/role/company/session locks with attendance, use last serialized write wins, and add no note history or independent command journal. An uncertain standalone save needs reconciliation before retry; final-note checkout is hash-bound and idempotent. `geofence_enter`/`geofence_exit` are `location_observations.observation_type` values; their associated session events use the existing `location_observation` umbrella. Ordinary new attendance events need no redundant reason label. Technical reasons include permission_denied, location_services_disabled, approximate_only, accuracy_insufficient, location_timeout, provider_error, and unknown; the v2 contract also defines boundary_uncertain, location_stale and factory_configuration_missing. Development thresholds remain subject to production approval. Do not infer intent from unavailable evidence.
 
 Retain `checkout_source`. Retain `checkout_reason_code` in this migration too, despite its approved removal from the target: actual historical values and closure-event consistency must be audited before a later cleanup migration.
+
+## C6.2 note UI and explicit standalone-save fallback
+
+The isolated C5 screen has a prominent `Note de la session` section with the
+canonical saved value, including distinct null and empty states. `Enregistrer
+la note` is explicitly disabled with French availability guidance. No active
+draft field is offered for a write that cannot safely run. `Note à la sortie`
+shows the current canonical value, three visible radio choices and a visible
+multiline final draft, enabled for explicit replacement only. A draft remains
+unsaved and is never used by preserve/clear. Existing C4 validation, immutable
+capture and C3 confirmation/consumption gates are unchanged. Description du lieu
+is labelled as worksite description, separate from note and classification.
+
+This is the C6.2 request's authorized safety fallback, not completed standalone
+note saving. `update_employee_note` takes only session ID/text, locks the owned
+active session and returns status/session/note. It has no request identity,
+durable operation receipt or terminal lookup. A read can precede a delayed
+write; a matching value can belong to another write. Neither establishes
+settlement after a lost response. The DTO is not durable proof. The C3 queue is
+isolate-local and its ports/storage accept attendance commands, not separate
+note operations. Reusing its single format-2 slot would change settled journal
+invariants and violate the separate-outbox requirement. A route's busy flag
+would lose unresolved ownership at restart and would not gate other instances.
+
+A safe standalone implementation therefore requires a separately reviewed
+server operation-identity/hash/replay/settlement contract, a separate encrypted
+durable pending-note store with verified recovery, and shared note/checkout
+coordination. Lookup must resolve a specific operation without allowing an
+earlier unseen write to commit after the gate is released; ordinary read or
+replay miss is insufficient. Preserve frozen full binding/generation/session/text
+and any uncertain result through restart before enabling another write/checkout.
+This concerns operation recovery, not an employee note-edit history feature.
+Those contracts and their local database/concurrency/native tests are deferred;
+no SQL or native storage is changed in this fallback. Production deployment,
+composition, writer fencing and privacy/backup gates remain in force.
+
+Own-session history for the preceding six months is a future read-only,
+owner-scoped paginated slice (REQ-EMP-013 / BL-033), including times, description,
+canonical note, classification and review state. Use configured business-timezone
+boundaries with UTC storage; the six-month window is not a deletion policy.
 
 ## C6.1 scoped active reads and auth notifications (not composed)
 

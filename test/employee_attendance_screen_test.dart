@@ -44,10 +44,8 @@ void main() {
           await mount(tester, f);
           if (checkout) {
             await tester.ensureVisible(
-              find.byType(DropdownButton<CheckoutNoteAction>),
+              find.text('Remplacer la note à la sortie'),
             );
-            await tester.tap(find.byType(DropdownButton<CheckoutNoteAction>));
-            await tester.pumpAndSettle();
             await tester.tap(find.text('Remplacer la note à la sortie').last);
             await tester.pumpAndSettle();
           }
@@ -228,10 +226,12 @@ void main() {
         await mount(tester, f);
         if (action != CheckoutNoteAction.preserve) {
           await tester.ensureVisible(
-            find.byType(DropdownButton<CheckoutNoteAction>),
+            find.text(
+              action == CheckoutNoteAction.replace
+                  ? 'Remplacer la note à la sortie'
+                  : 'Effacer la note à la sortie',
+            ),
           );
-          await tester.tap(find.byType(DropdownButton<CheckoutNoteAction>));
-          await tester.pumpAndSettle();
           await tester.tap(
             find
                 .text(
@@ -457,11 +457,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.ensureVisible(
-        find.byType(DropdownButton<CheckoutNoteAction>),
-      );
-      await tester.tap(find.byType(DropdownButton<CheckoutNoteAction>));
-      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Remplacer la note à la sortie'));
       await tester.tap(find.text('Remplacer la note à la sortie').last);
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.byType(TextField));

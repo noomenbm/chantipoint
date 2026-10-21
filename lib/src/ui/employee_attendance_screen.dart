@@ -130,6 +130,10 @@ class _EmployeeAttendanceScreenState extends State<EmployeeAttendanceScreen> {
                         Text('Lieu décrit : ${session.siteDescription}'),
                       Text(_reviewLabel(session.reviewStatus)),
                       const SizedBox(height: 12),
+                      Text(
+                        'Note de la session',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
                       Text(switch (session.employeeNote) {
                         null => 'Aucune note enregistrée.',
                         '' => 'Note enregistrée vide.',
@@ -139,54 +143,91 @@ class _EmployeeAttendanceScreenState extends State<EmployeeAttendanceScreen> {
                     ] else if (status == EmployeeAttendanceStatus.ready)
                       const Text('Aucune session active.'),
                     if (session?.isActive == true) ...[
-                      const Text('Note pour la sortie'),
-                      DropdownButton<CheckoutNoteAction>(
-                        isExpanded: true,
-                        value: _noteAction,
-                        onChanged: workflow.canCheckOut
-                            ? (value) => setState(() {
-                                _noteAction = value!;
-                                workflow.clearInputError();
-                              })
-                            : null,
-                        items: const [
-                          DropdownMenuItem(
-                            value: CheckoutNoteAction.preserve,
-                            child: Text('Conserver la note enregistrée'),
-                          ),
-                          DropdownMenuItem(
-                            value: CheckoutNoteAction.replace,
-                            child: Text('Remplacer la note à la sortie'),
-                          ),
-                          DropdownMenuItem(
-                            value: CheckoutNoteAction.clear,
-                            child: Text('Effacer la note à la sortie'),
-                          ),
-                        ],
+                      // Deliberately no standalone write: the existing RPC has
+                      // no replay receipt or separate durable uncertainty gate.
+                      // Do not offer an editable active draft that cannot save.
+                      const OutlinedButton(
+                        onPressed: null,
+                        child: Text('Enregistrer la note'),
                       ),
-                      if (_noteAction == CheckoutNoteAction.replace)
-                        TextField(
-                          controller: _finalNote,
-                          enabled: workflow.canCheckOut,
-                          minLines: 2,
-                          maxLines: 5,
-                          onChanged: (_) {
+                      const Text(
+                        'L’enregistrement pendant la session n’est pas encore '
+                        'disponible. Vous pouvez conserver, remplacer ou effacer '
+                        'la note à la sortie.',
+                      ),
+                      const SizedBox(height: 24),
+                      Text(
+                        'Note à la sortie',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      Text(switch (session!.employeeNote) {
+                        null => 'Valeur actuelle : aucune note.',
+                        '' => 'Valeur actuelle : texte vide.',
+                        final note => 'Valeur actuelle : $note',
+                      }),
+                      RadioGroup<CheckoutNoteAction>(
+                        groupValue: _noteAction,
+                        onChanged: (value) {
+                          if (!workflow.canCheckOut || value == null) return;
+                          setState(() {
+                            _noteAction = value;
                             workflow.clearInputError();
-                            setState(() {});
-                          },
-                          decoration: InputDecoration(
-                            labelText: 'Note finale (brouillon)',
-                            helperText: 'Un texte vide remplace aussi la note.',
-                            helperMaxLines: 2,
-                            counterText:
-                                '${_finalNote.text.runes.length} / '
-                                '${AttendanceActionCapture.finalNoteLimit} caractères Unicode',
-                            errorText: validateAttendanceInput(
-                              note: CheckoutNoteIntent.replace(_finalNote.text),
-                            )?.message,
-                            errorMaxLines: 4,
-                          ),
+                          });
+                        },
+                        child: Column(
+                          children: [
+                            for (final action in CheckoutNoteAction.values)
+                              RadioListTile<CheckoutNoteAction>(
+                                contentPadding: EdgeInsets.zero,
+                                value: action,
+                                enabled: workflow.canCheckOut,
+                                title: Text(switch (action) {
+                                  CheckoutNoteAction.preserve =>
+                                    'Conserver la note enregistrée',
+                                  CheckoutNoteAction.replace =>
+                                    'Remplacer la note à la sortie',
+                                  CheckoutNoteAction.clear =>
+                                    'Effacer la note à la sortie',
+                                }),
+                              ),
+                          ],
                         ),
+                      ),
+                      TextField(
+                        key: const ValueKey('checkout-note'),
+                        controller: _finalNote,
+                        enabled:
+                            workflow.canCheckOut &&
+                            _noteAction == CheckoutNoteAction.replace,
+                        minLines: 2,
+                        maxLines: 5,
+                        onChanged: (_) {
+                          workflow.clearInputError();
+                          setState(() {});
+                        },
+                        decoration: InputDecoration(
+                          labelText: 'Note finale (brouillon)',
+                          helperText: _noteAction == CheckoutNoteAction.replace
+                              ? 'Brouillon non enregistré. Il sera envoyé '
+                                    'uniquement avec la sortie. Un texte vide '
+                                    'remplace aussi la note.'
+                              : 'Choisissez « Remplacer » pour saisir la note '
+                                    'finale. Un brouillon conservé ici ne sera '
+                                    'pas envoyé avec « Conserver » ou « Effacer ».',
+                          helperMaxLines: 5,
+                          counterText:
+                              '${_finalNote.text.runes.length} / '
+                              '${AttendanceActionCapture.finalNoteLimit} caractères Unicode',
+                          errorText: _noteAction == CheckoutNoteAction.replace
+                              ? validateAttendanceInput(
+                                  note: CheckoutNoteIntent.replace(
+                                    _finalNote.text,
+                                  ),
+                                )?.message
+                              : null,
+                          errorMaxLines: 4,
+                        ),
+                      ),
                       const SizedBox(height: 12),
                       FilledButton.icon(
                         onPressed: workflow.canCheckOut
@@ -213,6 +254,7 @@ class _EmployeeAttendanceScreenState extends State<EmployeeAttendanceScreen> {
                       ),
                     ] else ...[
                       TextField(
+                        key: const ValueKey('worksite-description'),
                         controller: _description,
                         enabled: workflow.canCheckIn,
                         onChanged: (_) {
@@ -223,6 +265,11 @@ class _EmployeeAttendanceScreenState extends State<EmployeeAttendanceScreen> {
                         maxLines: 3,
                         decoration: InputDecoration(
                           labelText: 'Description du lieu (facultative)',
+                          helperText:
+                              'Décrivez le lieu de travail. Ce champ '
+                              'n’est pas la note de la session et ne détermine '
+                              'pas sa classification.',
+                          helperMaxLines: 4,
                           counterText:
                               '${_description.text.runes.length} / '
                               '${AttendanceActionCapture.siteDescriptionLimit} caractères Unicode',

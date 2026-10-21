@@ -161,12 +161,67 @@ inventory. Key/device/data loss and arbitrary rollback remain outside existing
 guarantees. The queue is isolate-local; production fencing/writer retirement and
 durable provenance remain prerequisites. No schema or native API changed.
 
-Standalone note saving is deferred. Its next slice must scope the save to the
-original authorized owner/generation/session, retain uncertain-save state through
-settlement, reconcile a lost response with canonical server data before another
-save/checkout can assume its outcome, and suppress stale publication. It stays
-outside the attendance outbox. Atomic immutable final checkout notes are supported
-now; there is no standalone Save button.
+## C6.2 notes: safe fallback and visible checkout intent
+
+The request explicitly permits a disabled/absent Save if safe standalone saving
+cannot be bounded. C6.2 uses that fallback. `Note de la session` displays the
+canonical saved value; `Enregistrer la note` is disabled with an explanation.
+There is no editable active-note draft that pretends to save, no note request,
+retry/reconciliation implementation, success indicator or invented save receipt.
+This leaves the active-session note requirement incomplete.
+
+`Note à la sortie` shows the canonical value again, all preserve/replace/clear
+choices as visible radios, and a multiline final-note field without a dropdown.
+The field is enabled only for replacement. Its text is explicitly an unsaved
+draft sent only with checkout; switching to preserve/clear does not send it.
+Empty replacement stays empty text, clear sends null, and preserve carries no
+replacement. The original immutable checkout command retains exact Unicode,
+spaces, intent and idempotency key through uncertain outcomes. Existing shared
+validation runs before context/location. The saved label comes only from a
+canonical read, never the draft. Known auth/session changes clear the draft;
+all choices disable during submission. No active draft is silently copied into
+checkout. A small-phone scrolling layout keeps all controls reachable with a
+keyboard. Worksite description help distinguishes location text from notes and
+server classification.
+
+### Why standalone Save remains blocked
+
+The existing SQL `update_employee_note` takes session/text, locks the active owned
+row, overwrites the note, and returns status/session/note. Concurrent database
+writes serialize, including checkout, but the response has no operation ID,
+request hash or replay receipt. A lost response may follow commit. A later read
+may complete before the earlier write even obtains its row lock. Equal note text
+cannot identify which operation committed. Thus neither a fresh canonical read,
+a successful unrelated HTTP response nor a replay miss can safely release a
+pending note gate. No such weak reconciliation is implemented.
+
+There is also no separate durable note-operation store. Format-2 JournalCommand
+and its native verified storage are attendance-only; extending/reusing them for
+notes would change the reviewed recovery architecture. A screen-owned flag or
+memory-only service loses pending intent at process restart and cannot serialize
+other workflows/checkout. Adding only an idempotent SQL wrapper would leave that
+gap. The required implementation spans server settlement and a separate verified
+storage/coordination boundary, so this slice does not add speculative SQL alone.
+
+Before enabling Save, review a separate operation contract and encrypted durable
+store retaining full owner/environment/generation, session, operation identity,
+exact text/null and request digest before dispatch. Reconciliation must establish
+terminal settlement of that original operation even if a response is lost; it
+must not let delayed old requests overwrite a newer read/write. Pending writes
+must block another save and checkout across route/auth changes and restart.
+Generation changes suppress publication but never retarget submitted work.
+Do not alter attendance journal recovery to accommodate standalone notes.
+
+Future tests must exercise lost replies before/after commit, delayed write/read,
+operation hash conflicts/replay, independent clients/checkout races, durable-store
+failure/restart, logout/relogin/wrong owner and cleanup uncertainty. Actual local
+pgTAP/concurrency and native storage evidence are needed for those new contracts;
+C6.2 widgets do not validate them. No SQL changed and no database/Android tests
+were run for this fallback.
+
+Own-session history (preceding six months, including canonical note and review
+state) remains a future read-only paginated slice, not a C6.2 feature or a rule
+to delete older sessions.
 
 Other pre-cutover gates remain: production composition of the C6.1 active-session
 adapter and auth notifications, trusted legacy

@@ -1,9 +1,64 @@
 # ChantiPoint Development Status
 
-Current slice: **M2.3c.C6.1, production-scoped v2 read and auth notification
+Current slice: **M2.3c.C6.2, note visibility with the authorized safe fallback**,
+based on clean **`fbc5665d6d4761e457bf9f90443a12100347243c`** on the human-created
+`feature/attendance-session-notes` branch. Changes remain unstaged/uncommitted.
+
+The isolated employee screen now has a prominent canonical `Note de la session`,
+a disabled `Enregistrer la note` action with availability guidance, and a
+`Note à la sortie` section with current saved value, all three explicit radio
+choices and a visible multiline final draft. Replacement alone enables/sends
+that draft. Empty replacement, null/clear and preserve remain distinct. Worksite
+description help separates it from session notes and server classification.
+
+**Standalone active-session saving is NOT implemented.** This is the request's
+explicit fallback, leaving that requirement incomplete. The current row-locked
+note RPC lacks operation identity/replay receipts; a canonical read can overtake
+a delayed write and matching text cannot identify its outcome. There is also no
+separate durable note-operation store/shared checkout gate surviving restart.
+Extending the settled attendance journal is outside the required separation.
+A new server settlement contract plus separate verified durable storage and
+coordination must be reviewed/tested before enabling Save. No weak success state,
+unsafe retry or network-failure-as-rollback assumption was added.
+
+REQ-EMP-013 / BL-033 now record own-session history for the preceding six months,
+with times, worksite description, canonical note, classification and review state.
+It is a future read-only paginated slice; no history UI or old-record deletion.
+
+C6.2 host validation (2026-10-21 UTC):
+
+- Focused serial suite: **147/147 passed** across note UI, existing screen,
+  workflow, receipt consumption and action capture. **11 new widget tests**
+  cover the disabled Save with no context/dispatch/journal/location activity,
+  visible choices/field, exact French text, empty/unchanged replacement,
+  preserve/clear excluding retained drafts, invalid inactive drafts, auth/session
+  changes, duplicate checkout taps and a compact phone with keyboard inset.
+  Existing combining-character boundary and correction/race tests still pass.
+- Full `flutter test --no-pub --concurrency=1`: **1399/1399 passed**, zero failures
+  or skips (1388 baseline plus 11), about 1m 34s of test output.
+- `flutter analyze --no-pub`: **no issues**. `git diff --check` and the new file's
+  whitespace/newline checks passed. An initial focused load failed on a misspelled
+  fictional fixture constant; it was corrected before these passing runs.
+- C:/E: before **23.47/22.68 GiB**, RAM **1.11 GiB** available; after host checks
+  **23.46/22.68 GiB**, RAM **1.57 GiB**. Lowest sampled C: **23.36 GiB**. Commands
+  ran sequentially, one test worker, proactive **5.5 GiB** guard above the
+  documented **5 GiB** stop rule. No cleanup, downloads or service startups.
+
+No standalone save/reconciliation exists to validate: lost note replies, delayed
+note writes, cross-restart note gating and server/native guarantees remain
+untested pending those contracts. No database, Android, emulator, Gradle, Docker
+or hosted validation was run. There are no
+SQL, native, auth, live-controller, coordinator, transport, dependencies or
+navigation changes. Existing production composition/deployment, provenance and
+durable writer-fencing, privacy/backup and actual location/runtime gates remain.
+
+See [Workflow safety assessment](employee-attendance-workflow.md#c62-notes-safe-fallback-and-visible-checkout-intent)
+and [Architecture](architecture.md#c62-note-ui-and-explicit-standalone-save-fallback).
+
+Previous committed slice: **M2.3c.C6.1, production-scoped v2 read and auth notification
 adapters**, based on clean **`dff71224d21ea6a6779c8accead7f147044520e8`**, branch
 `feature/attendance-v2-adapters`. The human created the branch; no branch or other
-Git mutation was performed. Work remains unstaged/uncommitted for review.
+Git mutation was performed during that slice; it is included in the C6.2 baseline.
 
 The existing C3.2 transport now supports an active SELECT with the exact C3.3
 owner/authority, binding and generation. Its bounded, one-attempt, pinned-scope
