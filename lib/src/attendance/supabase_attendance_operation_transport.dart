@@ -11,6 +11,8 @@ import 'journal/journal_json.dart';
 import 'notes/session_note_ports.dart';
 import 'notes/session_note_record.dart';
 
+enum AttendanceSessionProjection { legacy, v2 }
+
 enum AttendanceHttpFailureKind {
   contextInvalidated,
   authorityUnavailable,
@@ -46,10 +48,17 @@ final class SupabaseAttendanceOperationTransport
   SupabaseAttendanceOperationTransport({
     required this.authority,
     required this.client,
+    this.projection = AttendanceSessionProjection.v2,
+    this.authorizeWrite,
   });
   @override
   final AttendanceRequestAuthority authority;
   final http.Client client;
+  final AttendanceSessionProjection projection;
+  // Optional isolated transport hook; normal composition ALWAYS supplies it.
+  // It runs after asynchronous credential resolution, immediately before send.
+  final void Function(AttendanceOperationIdentity identity, String path)?
+  authorizeWrite;
 
   /// Separate keyed-note protocol, sharing only the pinned one-attempt HTTP
   /// machinery. No attendance command/DTO/journal conversion or live wiring.
@@ -84,7 +93,7 @@ final class SupabaseAttendanceOperationTransport
   }
 
   static const responseLimit = JournalJson.payloadLimit;
-  static const _columns = {
+  static const _v2Columns = {
     'id',
     'employee_profile_id',
     'company_id',
@@ -96,6 +105,9 @@ final class SupabaseAttendanceOperationTransport
     'employee_note',
     'review_status',
   };
+  Set<String> get _columns => projection == AttendanceSessionProjection.v2
+      ? _v2Columns
+      : _v2Columns.difference({'employee_note', 'review_status'});
 
   /// One SELECT snapshot proves both visible employee authorization and the
   /// active selection. A bare work_sessions [] can also mean RLS hid a revoked
@@ -185,7 +197,8 @@ final class SupabaseAttendanceOperationTransport
           ).hasMatch(row['id'] as String) ||
           row['lifecycle_status'] != 'active' ||
           row['ended_at'] != null ||
-          !WorkSession.reviewStatuses.contains(row['review_status'])) {
+          (projection == AttendanceSessionProjection.v2 &&
+              !WorkSession.reviewStatuses.contains(row['review_status']))) {
         invalidJournal();
       }
       journalTimestamp(row['started_at']);
@@ -293,7 +306,8 @@ final class SupabaseAttendanceOperationTransport
       if (row['id'] != sessionId ||
           row['company_id'] != identity.binding.companyId ||
           row['employee_profile_id'] != identity.binding.profileId ||
-          !WorkSession.reviewStatuses.contains(row['review_status'])) {
+          (projection == AttendanceSessionProjection.v2 &&
+              !WorkSession.reviewStatuses.contains(row['review_status']))) {
         invalidJournal();
       }
       final session = WorkSession.fromJson(row);
@@ -408,6 +422,7 @@ final class SupabaseAttendanceOperationTransport
       request.bodyBytes = bytes;
     }
     _check(identity, scope); // No await between this check and submission.
+    if (method == 'POST') authorizeWrite?.call(identity, path);
     try {
       final response = await client.send(request); // Exactly one send.
       return await _consume(response);

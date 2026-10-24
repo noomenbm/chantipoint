@@ -7,12 +7,18 @@ import '../attendance/attendance_action_capture.dart';
 import '../attendance/employee_attendance_workflow.dart';
 import '../time/business_time.dart';
 
-/// Isolated screen: deliberately absent from AuthGate and application routes.
 /// Owns only its injected presentation workflow, never the shared auth owner or
 /// operation coordinator. Disposal does not cancel submitted attendance work.
 class EmployeeAttendanceScreen extends StatefulWidget {
-  const EmployeeAttendanceScreen({super.key, required this.workflow});
+  const EmployeeAttendanceScreen({
+    super.key,
+    required this.workflow,
+    this.embedded = false,
+    this.header,
+  });
   final EmployeeAttendanceWorkflow workflow;
+  final bool embedded;
+  final Widget? header;
 
   @override
   State<EmployeeAttendanceScreen> createState() =>
@@ -71,264 +77,275 @@ class _EmployeeAttendanceScreenState extends State<EmployeeAttendanceScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Mon pointage')),
-    body: SafeArea(
-      child: AnimatedBuilder(
-        animation: widget.workflow,
-        builder: (context, _) {
-          final workflow = widget.workflow;
-          final state = workflow.state;
-          final session = state.session;
-          final status = state.status;
-          return SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-            child: Align(
-              alignment: Alignment.topCenter,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 600),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Semantics(
-                      liveRegion: true,
-                      child: Text(
-                        _message(status),
-                        style: Theme.of(context).textTheme.titleMedium,
+  Widget build(BuildContext context) => widget.embedded
+      ? _body(context)
+      : Scaffold(
+          appBar: AppBar(title: const Text('Mon pointage')),
+          body: _body(context),
+        );
+
+  Widget _body(BuildContext context) => SafeArea(
+    child: AnimatedBuilder(
+      animation: widget.workflow,
+      builder: (context, _) {
+        final workflow = widget.workflow;
+        final state = workflow.state;
+        final session = state.session;
+        final status = state.status;
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 600),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (widget.header != null) widget.header!,
+                  if (workflow.integrationMessage != null) ...[
+                    Text(workflow.integrationMessage!),
+                    const SizedBox(height: 16),
+                  ],
+                  Semantics(
+                    liveRegion: true,
+                    child: Text(
+                      _message(status),
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                  if (workflow.isBusy) ...[
+                    const SizedBox(height: 12),
+                    LinearProgressIndicator(semanticsLabel: _message(status)),
+                  ],
+                  const SizedBox(height: 16),
+                  if (state.message != null) ...[
+                    Semantics(liveRegion: true, child: Text(state.message!)),
+                    const SizedBox(height: 16),
+                  ],
+                  if (session != null) ...[
+                    Text(
+                      session.isActive
+                          ? 'Session active'
+                          : session.lifecycleStatus == 'voided'
+                          ? 'Session annulée'
+                          : 'Session terminée',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    Text(switch (session.locationContext) {
+                      'factory' => 'À l’usine',
+                      'external_worksite' => 'Chantier extérieur',
+                      _ => 'Lieu non vérifié — le pointage reste enregistré',
+                    }),
+                    Text('Entrée : ${formatBusinessTime(session.startedAt)}'),
+                    if (session.endedAt != null)
+                      Text('Sortie : ${formatBusinessTime(session.endedAt!)}'),
+                    if (session.siteDescription != null)
+                      Text('Lieu décrit : ${session.siteDescription}'),
+                    Text(_reviewLabel(session.reviewStatus)),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Note de la session',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    Text(
+                      !workflow.noteDataAvailable
+                          ? 'Note indisponible dans cette version du serveur.'
+                          : switch (session.employeeNote) {
+                              null => 'Aucune note enregistrée.',
+                              '' => 'Note enregistrée vide.',
+                              final note => 'Note enregistrée : $note',
+                            },
+                    ),
+                    const SizedBox(height: 16),
+                  ] else if (status == EmployeeAttendanceStatus.ready)
+                    const Text('Aucune session active.'),
+                  if (session?.isActive == true) ...[
+                    // The separate note foundation is not activated: shared
+                    // checkout/recovery fencing and deployment remain gated.
+                    const OutlinedButton(
+                      onPressed: null,
+                      child: Text('Enregistrer la note'),
+                    ),
+                    const Text(
+                      'L’enregistrement pendant la session n’est pas encore '
+                      'disponible. Vous pouvez conserver, remplacer ou effacer '
+                      'la note à la sortie.',
+                    ),
+                    const SizedBox(height: 24),
+                    Text(
+                      'Note à la sortie',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    Text(
+                      !workflow.noteDataAvailable
+                          ? 'Valeur actuelle non disponible.'
+                          : switch (session!.employeeNote) {
+                              null => 'Valeur actuelle : aucune note.',
+                              '' => 'Valeur actuelle : texte vide.',
+                              final note => 'Valeur actuelle : $note',
+                            },
+                    ),
+                    RadioGroup<CheckoutNoteAction>(
+                      groupValue: _noteAction,
+                      onChanged: (value) {
+                        if (!workflow.canCheckOut || value == null) return;
+                        setState(() {
+                          _noteAction = value;
+                          workflow.clearInputError();
+                        });
+                      },
+                      child: Column(
+                        children: [
+                          for (final action in CheckoutNoteAction.values)
+                            RadioListTile<CheckoutNoteAction>(
+                              contentPadding: EdgeInsets.zero,
+                              value: action,
+                              enabled: workflow.canCheckOut,
+                              title: Text(switch (action) {
+                                CheckoutNoteAction.preserve =>
+                                  'Conserver la note enregistrée',
+                                CheckoutNoteAction.replace =>
+                                  'Remplacer la note à la sortie',
+                                CheckoutNoteAction.clear =>
+                                  'Effacer la note à la sortie',
+                              }),
+                            ),
+                        ],
                       ),
                     ),
-                    if (workflow.isBusy) ...[
-                      const SizedBox(height: 12),
-                      LinearProgressIndicator(semanticsLabel: _message(status)),
-                    ],
-                    const SizedBox(height: 16),
-                    if (state.message != null) ...[
-                      Semantics(liveRegion: true, child: Text(state.message!)),
-                      const SizedBox(height: 16),
-                    ],
-                    if (session != null) ...[
-                      Text(
-                        session.isActive
-                            ? 'Session active'
-                            : session.lifecycleStatus == 'voided'
-                            ? 'Session annulée'
-                            : 'Session terminée',
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
-                      Text(switch (session.locationContext) {
-                        'factory' => 'À l’usine',
-                        'external_worksite' => 'Chantier extérieur',
-                        _ => 'Lieu non vérifié — le pointage reste enregistré',
-                      }),
-                      Text('Entrée : ${formatBusinessTime(session.startedAt)}'),
-                      if (session.endedAt != null)
-                        Text(
-                          'Sortie : ${formatBusinessTime(session.endedAt!)}',
-                        ),
-                      if (session.siteDescription != null)
-                        Text('Lieu décrit : ${session.siteDescription}'),
-                      Text(_reviewLabel(session.reviewStatus)),
-                      const SizedBox(height: 12),
-                      Text(
-                        'Note de la session',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      Text(switch (session.employeeNote) {
-                        null => 'Aucune note enregistrée.',
-                        '' => 'Note enregistrée vide.',
-                        final note => 'Note enregistrée : $note',
-                      }),
-                      const SizedBox(height: 16),
-                    ] else if (status == EmployeeAttendanceStatus.ready)
-                      const Text('Aucune session active.'),
-                    if (session?.isActive == true) ...[
-                      // Deliberately no standalone write: the existing RPC has
-                      // no replay receipt or separate durable uncertainty gate.
-                      // Do not offer an editable active draft that cannot save.
-                      const OutlinedButton(
-                        onPressed: null,
-                        child: Text('Enregistrer la note'),
-                      ),
-                      const Text(
-                        'L’enregistrement pendant la session n’est pas encore '
-                        'disponible. Vous pouvez conserver, remplacer ou effacer '
-                        'la note à la sortie.',
-                      ),
-                      const SizedBox(height: 24),
-                      Text(
-                        'Note à la sortie',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      Text(switch (session!.employeeNote) {
-                        null => 'Valeur actuelle : aucune note.',
-                        '' => 'Valeur actuelle : texte vide.',
-                        final note => 'Valeur actuelle : $note',
-                      }),
-                      RadioGroup<CheckoutNoteAction>(
-                        groupValue: _noteAction,
-                        onChanged: (value) {
-                          if (!workflow.canCheckOut || value == null) return;
-                          setState(() {
-                            _noteAction = value;
-                            workflow.clearInputError();
-                          });
-                        },
-                        child: Column(
-                          children: [
-                            for (final action in CheckoutNoteAction.values)
-                              RadioListTile<CheckoutNoteAction>(
-                                contentPadding: EdgeInsets.zero,
-                                value: action,
-                                enabled: workflow.canCheckOut,
-                                title: Text(switch (action) {
-                                  CheckoutNoteAction.preserve =>
-                                    'Conserver la note enregistrée',
-                                  CheckoutNoteAction.replace =>
-                                    'Remplacer la note à la sortie',
-                                  CheckoutNoteAction.clear =>
-                                    'Effacer la note à la sortie',
-                                }),
-                              ),
-                          ],
-                        ),
-                      ),
-                      TextField(
-                        key: const ValueKey('checkout-note'),
-                        controller: _finalNote,
-                        enabled:
-                            workflow.canCheckOut &&
-                            _noteAction == CheckoutNoteAction.replace,
-                        minLines: 2,
-                        maxLines: 5,
-                        onChanged: (_) {
-                          workflow.clearInputError();
-                          setState(() {});
-                        },
-                        decoration: InputDecoration(
-                          labelText: 'Note finale (brouillon)',
-                          helperText: _noteAction == CheckoutNoteAction.replace
-                              ? 'Brouillon non enregistré. Il sera envoyé '
-                                    'uniquement avec la sortie. Un texte vide '
-                                    'remplace aussi la note.'
-                              : 'Choisissez « Remplacer » pour saisir la note '
-                                    'finale. Un brouillon conservé ici ne sera '
-                                    'pas envoyé avec « Conserver » ou « Effacer ».',
-                          helperMaxLines: 5,
-                          counterText:
-                              '${_finalNote.text.runes.length} / '
-                              '${AttendanceActionCapture.finalNoteLimit} caractères Unicode',
-                          errorText: _noteAction == CheckoutNoteAction.replace
-                              ? validateAttendanceInput(
-                                  note: CheckoutNoteIntent.replace(
-                                    _finalNote.text,
-                                  ),
-                                )?.message
-                              : null,
-                          errorMaxLines: 4,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      FilledButton.icon(
-                        onPressed: workflow.canCheckOut
-                            ? () {
-                                FocusScope.of(context).unfocus();
-                                unawaited(
-                                  workflow.checkOut(
-                                    note: switch (_noteAction) {
-                                      CheckoutNoteAction.preserve =>
-                                        const CheckoutNoteIntent.preserve(),
-                                      CheckoutNoteAction.clear =>
-                                        const CheckoutNoteIntent.clear(),
-                                      CheckoutNoteAction.replace =>
-                                        CheckoutNoteIntent.replace(
-                                          _finalNote.text,
-                                        ),
-                                    },
-                                  ),
-                                );
-                              }
+                    TextField(
+                      key: const ValueKey('checkout-note'),
+                      controller: _finalNote,
+                      enabled:
+                          workflow.canCheckOut &&
+                          _noteAction == CheckoutNoteAction.replace,
+                      minLines: 2,
+                      maxLines: 5,
+                      onChanged: (_) {
+                        workflow.clearInputError();
+                        setState(() {});
+                      },
+                      decoration: InputDecoration(
+                        labelText: 'Note finale (brouillon)',
+                        helperText: _noteAction == CheckoutNoteAction.replace
+                            ? 'Brouillon non enregistré. Il sera envoyé '
+                                  'uniquement avec la sortie. Un texte vide '
+                                  'remplace aussi la note.'
+                            : 'Choisissez « Remplacer » pour saisir la note '
+                                  'finale. Un brouillon conservé ici ne sera '
+                                  'pas envoyé avec « Conserver » ou « Effacer ».',
+                        helperMaxLines: 5,
+                        counterText:
+                            '${_finalNote.text.runes.length} / '
+                            '${AttendanceActionCapture.finalNoteLimit} caractères Unicode',
+                        errorText: _noteAction == CheckoutNoteAction.replace
+                            ? validateAttendanceInput(
+                                note: CheckoutNoteIntent.replace(
+                                  _finalNote.text,
+                                ),
+                              )?.message
                             : null,
-                        icon: const Icon(Icons.logout),
-                        label: const Text('Pointer une sortie'),
+                        errorMaxLines: 4,
                       ),
-                    ] else ...[
-                      TextField(
-                        key: const ValueKey('worksite-description'),
-                        controller: _description,
-                        enabled: workflow.canCheckIn,
-                        onChanged: (_) {
-                          workflow.clearInputError();
-                          setState(() {});
-                        },
-                        minLines: 1,
-                        maxLines: 3,
-                        decoration: InputDecoration(
-                          labelText: 'Description du lieu (facultative)',
-                          helperText:
-                              'Décrivez le lieu de travail. Ce champ '
-                              'n’est pas la note de la session et ne détermine '
-                              'pas sa classification.',
-                          helperMaxLines: 4,
-                          counterText:
-                              '${_description.text.runes.length} / '
-                              '${AttendanceActionCapture.siteDescriptionLimit} caractères Unicode',
-                          errorText: validateAttendanceInput(
-                            siteDescription: _description.text,
-                          )?.message,
-                          errorMaxLines: 4,
-                        ),
-                      ),
-                      FilledButton.icon(
-                        onPressed: workflow.canCheckIn
-                            ? () {
-                                FocusScope.of(context).unfocus();
-                                final text = _description.text;
-                                unawaited(
-                                  workflow.checkIn(
-                                    siteDescription: text.isEmpty ? null : text,
-                                  ),
-                                );
-                              }
-                            : null,
-                        icon: const Icon(Icons.login),
-                        label: const Text('Pointer une entrée'),
-                      ),
-                    ],
-                    if (workflow.canConsume) ...[
-                      const SizedBox(height: 12),
-                      FilledButton.tonal(
-                        onPressed: workflow.consume,
-                        child: const Text('Terminer la vérification'),
-                      ),
-                    ],
-                    if (state.recovery != AttendanceRecoveryAction.none) ...[
-                      const SizedBox(height: 12),
-                      FilledButton.tonal(
-                        onPressed: workflow.canRecover
-                            ? workflow.recover
-                            : null,
-                        child: Text(
-                          state.recovery ==
-                                  AttendanceRecoveryAction.recoverEmpty
-                              ? 'Réessayer la vérification sur cet appareil'
-                              : 'Vérifier le pointage conservé',
-                        ),
-                      ),
-                    ],
+                    ),
                     const SizedBox(height: 12),
-                    OutlinedButton.icon(
-                      onPressed: workflow.isBusy ? null : workflow.refresh,
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('Actualiser le pointage'),
+                    FilledButton.icon(
+                      onPressed: workflow.canCheckOut
+                          ? () {
+                              FocusScope.of(context).unfocus();
+                              unawaited(
+                                workflow.checkOut(
+                                  note: switch (_noteAction) {
+                                    CheckoutNoteAction.preserve =>
+                                      const CheckoutNoteIntent.preserve(),
+                                    CheckoutNoteAction.clear =>
+                                      const CheckoutNoteIntent.clear(),
+                                    CheckoutNoteAction.replace =>
+                                      CheckoutNoteIntent.replace(
+                                        _finalNote.text,
+                                      ),
+                                  },
+                                ),
+                              );
+                            }
+                          : null,
+                      icon: const Icon(Icons.logout),
+                      label: const Text('Pointer une sortie'),
+                    ),
+                  ] else ...[
+                    TextField(
+                      key: const ValueKey('worksite-description'),
+                      controller: _description,
+                      enabled: workflow.canCheckIn,
+                      onChanged: (_) {
+                        workflow.clearInputError();
+                        setState(() {});
+                      },
+                      minLines: 1,
+                      maxLines: 3,
+                      decoration: InputDecoration(
+                        labelText: 'Description du lieu (facultative)',
+                        helperText:
+                            'Décrivez le lieu de travail. Ce champ '
+                            'n’est pas la note de la session et ne détermine '
+                            'pas sa classification.',
+                        helperMaxLines: 4,
+                        counterText:
+                            '${_description.text.runes.length} / '
+                            '${AttendanceActionCapture.siteDescriptionLimit} caractères Unicode',
+                        errorText: validateAttendanceInput(
+                          siteDescription: _description.text,
+                        )?.message,
+                        errorMaxLines: 4,
+                      ),
+                    ),
+                    FilledButton.icon(
+                      onPressed: workflow.canCheckIn
+                          ? () {
+                              FocusScope.of(context).unfocus();
+                              final text = _description.text;
+                              unawaited(
+                                workflow.checkIn(
+                                  siteDescription: text.isEmpty ? null : text,
+                                ),
+                              );
+                            }
+                          : null,
+                      icon: const Icon(Icons.login),
+                      label: const Text('Pointer une entrée'),
                     ),
                   ],
-                ),
+                  if (workflow.canConsume) ...[
+                    const SizedBox(height: 12),
+                    FilledButton.tonal(
+                      onPressed: workflow.consume,
+                      child: const Text('Terminer la vérification'),
+                    ),
+                  ],
+                  if (state.recovery != AttendanceRecoveryAction.none) ...[
+                    const SizedBox(height: 12),
+                    FilledButton.tonal(
+                      onPressed: workflow.canRecover ? workflow.recover : null,
+                      child: Text(
+                        state.recovery == AttendanceRecoveryAction.recoverEmpty
+                            ? 'Réessayer la vérification sur cet appareil'
+                            : 'Vérifier le pointage conservé',
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: workflow.isBusy ? null : workflow.refresh,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Actualiser le pointage'),
+                  ),
+                ],
               ),
             ),
-          );
-        },
-      ),
+          ),
+        );
+      },
     ),
   );
 }

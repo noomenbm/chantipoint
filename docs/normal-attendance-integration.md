@@ -1,0 +1,126 @@
+# Normal-app attendance integration
+
+Baseline: `90432ec`, branch `feature/attendance-live-integration`. This is a
+guarded composition for review, **not hosted v2 activation**. The developer
+explicitly approved replacing the legacy attendance panel while all attendance
+writes remain unavailable pending safe cutover. History, authentication, role
+restrictions and sign-out remain available. The legacy implementation is retained
+in source for existing tests; normal `main.dart` does not construct its writer.
+An error never selects that writer as a fallback.
+
+## Composition and lifetime
+
+`NormalAttendanceComposition` owns one `AttendanceAuthOwner`, pinned HTTP client,
+scoped active-session reader and C3 operation coordinator for the application
+lifetime. Each employee home owns a C5 workflow/screen, C4 foreground capture
+and drafts. History is a sibling in the authenticated subtree and does not
+dispose attendance during navigation. Non-employee roles receive no workflow.
+Auth revalidation recreates the route; logout initiation, authorization loss,
+account changes and same-user relogin invalidate old contexts. Same-login token
+refresh preserves the generation under the existing owner rules.
+
+Screen disposal abandons only unsubmitted capture. Submitted work retains its
+context, pinned transport and original journal until settlement. Application
+shutdown invalidates authority immediately, then drains workflows/contexts before
+closing the HTTP client and disposing auth. A late valid receipt may be persisted
+for its original command, without publishing stale session data.
+
+The existing sequencing is retained: validate frozen text, acquire one foreground
+fix (or technical unavailable evidence), securely prepare the immutable command,
+mark possible submission, make one HTTP attempt, retain the complete raw receipt,
+and read canonical session state. Confirmation does not itself release the gate;
+explicit reviewed consumption/recovery uses the existing C3 verifier. Check-in
+description and preserve/replace/clear final checkout-note intent stay immutable.
+There is no polling, automatic retry, continuous GPS or background tracking.
+
+## Fail-closed deployment boundary
+
+`ATTENDANCE_ENVIRONMENT_ID` is optional trusted build configuration for an
+independently provisioned deployment-instance/restore epoch. It is not derived
+from the URL, user IDs, a journal or the current account. Its absence leaves login
+and History functional but blocks pointage **before local slot access, GPS or
+attendance HTTP**. No value is supplied in source. Supplying this identifier does
+not enable writes or certify server capability.
+
+Normal composition uses `UnapprovedAttendanceCutover`; there is no production
+approval issuer and no activation build flag. Every new submit, replay and receipt
+consumption is disabled by default. A future issuer must establish compatible
+server migrations/contracts and gate, trusted environment, approved migration
+provenance where required, durable source assignment and retirement/fencing of
+all old writers across restart/processes, held through settlement. A failed or
+absent check is denial, never permission. The transport rechecks approval after
+async credential acquisition, immediately before POST. Submitted responses are
+still allowed to settle after invalidation/approval withdrawal.
+
+Existing backup/device-transfer and client/privacy approval obligations also
+remain prerequisites; this composition does not approve or change backup policy.
+
+When a trusted namespace exists, read-only legacy source inspection and separate
+encrypted note-slot inspection precede C3 reads. Any source, temporary/unexpected
+artifact, unreadable inspection or retained note slot blocks pointage and is
+preserved. File absence is not provenance or durable fencing proof. No migration,
+source binding, deletion, reset or note recovery is performed. The source
+inspector and native storage retain their existing reviewed recovery policies.
+Missing namespace does not guess which binding to inspect.
+
+The default active/canonical projection omits `employee_note` and `review_status`;
+it does not assume local-only migrations exist on hosted development. Missing
+fields appear as unavailable, not invented absence. The scoped reader still
+checks profile/employee authorization and full owner binding. Schema, permission,
+network and malformed responses remain errors, never an empty active session.
+The v2 enriched projection plus explicit cutover authority is used only by
+fictional tests; changing the projection alone cannot enable writes.
+
+## Standalone notes remain disabled
+
+`Enregistrer la note` has no handler. Normal composition supplies no note
+coordinator and refuses the note RPC even under a test attendance approval. Any
+existing note record (including terminal evidence or checkout reservation) blocks
+this composition until a reviewed shared note/checkout recovery boundary exists.
+Activation additionally requires the settled-note backend deployment, compatible
+old-writer fencing and all attendance cutover obligations. Final-note intent is
+part of the immutable checkout command, not a standalone save.
+
+## Current hosted development behavior
+
+The existing development URL/public key are sufficient for login, authorization,
+History and sign-out. They do not establish the new deployment identity or v2
+capability. With that existing configuration, employees see a French pointage
+configuration notice and disabled attendance actions. No check-in, checkout,
+replay, note save or GPS capture is performed. Pending legacy/v2 data remains
+untouched. This deliberate temporary loss of legacy attendance actions was
+approved for this reviewable integration; do not distribute as an attendance
+release before cutover approval.
+
+Validation results are recorded in [Development status](development-status.md).
+Host RAM fixtures do not prove Android durability, hosted RLS/contract behavior,
+production fencing, backup policy, power-loss safety or deployment readiness.
+
+## Normal-app Android smoke check (2026-10-24)
+
+The existing temporary development configuration contains only public client
+configuration and stays outside Git. Actual build/install commands were:
+
+```powershell
+$devConfig = Join-Path $env:TEMP 'ChantiPointHistorySmoke/development.json'
+flutter build apk --debug --no-pub --target lib/main.dart --target-platform android-x64 --dart-define-from-file="$devConfig"
+adb -s emulator-5554 install -r build/app/outputs/flutter-apk/app-debug.apk
+adb -s emulator-5554 shell am start -W -n com.example.chantipoint/.MainActivity
+adb -s emulator-5554 shell am force-stop com.example.chantipoint
+adb -s emulator-5554 shell am start -W -n com.example.chantipoint/.MainActivity
+```
+
+Package/activity and signature were checked with installed `aapt dump badging`
+and `apksigner verify --verbose`. This was a normal **debug validation APK**, not
+a release or demo distribution. The existing Pixel_9 emulator was selected; the
+physical phone was not used. Install preserved application data and the existing
+authorized session restored. History loaded canonical hosted summaries; C5
+displayed its deployment notice and a disabled check-in. Return navigation,
+restart and sign-out to login succeeded. No permission prompt or attendance
+submission was exercised. Session text and credentials are excluded from reports.
+
+One initial Android not-responding dialog cleared after **Wait**. Its root cause
+was not established; a subsequent restart showed no dialog. Memory pressure and
+slow cold launches limit this smoke check. It does not validate enabled v2 GPS,
+RPCs, native receipt/recovery, note saving, fresh login or post-logout relogin.
+The emulator and build daemon were stopped, retaining application data and keys.

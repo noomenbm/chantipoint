@@ -1,6 +1,67 @@
 # ChantiPoint Development Status
 
-Current slice: **employee six-month session history**, based on clean
+Current slice: **guarded normal-app attendance integration**, based on clean
+`90432ec2c1b13500c4b7b695579a8ba254765209`, human-created branch
+`feature/attendance-live-integration`. Changes remain unstaged/uncommitted.
+
+The normal employee home now composes the C5 workflow with application-lifetime
+auth ownership, pinned HTTP, scoped canonical reads, Android journal/verifier and
+foreground capture. The developer approved temporarily replacing legacy attendance
+actions with this gated panel. History/sign-out and employee role restrictions
+remain. Production cutover approval always denies: no v2 writes, replay, note Save,
+legacy fallback, migration or source cleanup. Existing configuration lacks the
+independent attendance deployment identity, so pointage is blocked before GPS,
+slot access or attendance HTTP. Login/History remain independently configured.
+See [Normal attendance integration](normal-attendance-integration.md) for exact
+lifetimes, preserved evidence and production prerequisites.
+
+Host validation completed 2026-10-21 (logs rechecked 2026-10-24): **239 focused
+Flutter tests passed**, including **36 new composed integration tests**. Full
+`flutter test --no-pub --concurrency=1`: **1,598 passed**, zero failures/skips.
+`flutter analyze --no-pub`: **no issues**; `git diff --check` passed. Tests use
+fictional auth/HTTP/location and RAM stores: check-in/out, all final-note intents,
+raw receipts, lost-response replay, retained legacy/v2/note evidence, capability
+withdrawal, auth changes, draining late receipts, roles, History navigation and
+unavailable enriched fields. Existing isolated workflow startup timing is retained
+when no integration guard is supplied. Lowest sampled C: free during final full
+suite: **24.06 GiB**. These results do not establish Android durability or hosted
+v2 deployment.
+
+Android validation completed 2026-10-24, separate from those host tests:
+
+- Normal debug APK built successfully for `android-x64` using existing SDK/Gradle
+  caches, one worker and the unchanged 1 GiB Gradle heap. Gradle took **267.2 s**;
+  the monitored wrapper took **271.5 s**. Package `com.example.chantipoint`, normal
+  `MainActivity`, version code 1, and a valid debug APK signature were verified.
+  No demo flavor or production signing key was used.
+- Existing **Pixel_9 / emulator-5554, API 37, x86_64**, explicitly selected before
+  `adb install -r`; application data was retained. Normal launch, restored auth,
+  C5 home/gate notice, disabled check-in, History with hosted canonical summaries
+  and Montréal range, return navigation, force-stop/restart, and sign-out back to
+  login were verified. Private attendance/History UI disappeared after sign-out.
+  Missing note/review capabilities were honestly shown as unavailable. No
+  location prompt appeared. No attendance, replay or note operation was submitted.
+- Initial startup was interrupted by an Android not-responding dialog. Selecting
+  **Wait** recovered the normal UI; a later restart completed without that dialog.
+  Its owning component/root cause was not established. Cold activity launches took
+  about 24 s and 31 s under observed memory pressure; this is a remaining emulator
+  limitation, not a diagnosed/fixed application defect or production performance
+  claim. No fatal-runtime/unhandled-Flutter indicator was found in the bounded
+  probe. The probe reads Flutter accessibility descriptions as well as native text.
+- Lowest sampled C: free: **22.19 GiB build**, **20.66 GiB emulator boot**. Gradle
+  daemon and emulator were stopped afterward; caches, AVD and all application data
+  were retained. No physical phone, Docker, migrations or hosted settings changed.
+  A missing temporary public-client config was restored outside Git using the
+  authenticated CLI's read-only public-key listing; no identity/activation was
+  invented and no keys were added to source.
+
+Native v2 GPS/action/receipt/recovery, native note Save, fresh credential entry,
+and a post-logout relogin were not exercised. They are not implied by host mocks,
+APK compilation or the read-only hosted History result. No v2 backend capability,
+deployment, legacy provenance/fencing, power-loss durability or production readiness
+is established. See the integration document for commands and remaining gates.
+
+Previous slice: **employee six-month session history**, based on clean
 `0df77f9d878add940817272bc4e59bd4cf4eea4b`, human-created branch
 `feature/employee-session-history`. Changes remain unstaged/uncommitted.
 

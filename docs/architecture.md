@@ -1,5 +1,16 @@
 # ChantiPoint Architecture v0.1
 
+## Guarded normal-app composition (current)
+
+Normal `main.dart` composes C5 through `NormalAttendanceComposition`, alongside
+History and sign-out. Writes and standalone note Save remain disabled. Replacing
+the legacy panel temporarily removes legacy attendance actions, as explicitly
+approved; no pending command is migrated or reset. Earlier isolated-slice
+descriptions record their original boundaries. This composition supersedes claims
+that C5 is absent from normal navigation. See
+[Normal attendance integration](normal-attendance-integration.md) for trusted
+namespace, lifecycle, deployment and cutover requirements.
+
 This document describes ChantiPoint's target architecture. M2.1 backend foundation is deployed to `chantipoint-dev`, and M2.2 Flutter authentication is complete. See [Development Status](development-status.md) for verification and remaining work; the broader components and workflows below include planned features and do not establish production readiness.
 
 ## M2.3b Implementation Boundary

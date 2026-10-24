@@ -11,6 +11,7 @@ import 'journal/command_journal.dart';
 import 'journal/journal_command.dart';
 import 'journal/journal_json.dart';
 import 'journal/journal_record.dart';
+import 'integration/attendance_integration_guard.dart';
 
 /// Injected canonical read, not the legacy repository's current-account lookup.
 /// Implementations must scope by the full identity, enforce authorization and
@@ -121,8 +122,8 @@ final class EmployeeAttendanceState {
   final AttendanceInputError? inputError;
 }
 
-/// Isolated C5.1 presentation. No production factory, HTTP/auth fallback, file
-/// migration, direct journal compaction or live navigation. One instance per route;
+/// C5 presentation with an optional fail-closed integration guard. No HTTP/auth
+/// fallback, file migration or direct journal compaction. One instance per route;
 /// coordinator/auth/storage lifetimes remain outside that route.
 final class EmployeeAttendanceWorkflow extends ChangeNotifier {
   EmployeeAttendanceWorkflow({
@@ -131,6 +132,8 @@ final class EmployeeAttendanceWorkflow extends ChangeNotifier {
     required this.activeSessions,
     required this.capture,
     required this.coordinator,
+    this.integrationGuard,
+    this.onDisposed,
   }) {
     authorizationChanges.addListener(_authorizationChanged);
     activeSessions.addListener(_sessionsChanged);
@@ -141,6 +144,15 @@ final class EmployeeAttendanceWorkflow extends ChangeNotifier {
   final AttendanceActiveSessionReader activeSessions;
   final AttendanceActionCapture capture;
   final AttendanceOperationCoordinator coordinator;
+  final AttendanceIntegrationGuard? integrationGuard;
+  final VoidCallback? onDisposed;
+  bool get noteDataAvailable => integrationGuard?.enrichedSessions ?? true;
+  String? get integrationMessage =>
+      integrationGuard?.configurationMessage ??
+      (integrationGuard != null && !integrationGuard!.allows(_viewIdentity)
+          ? AttendanceIntegrationGuard.notActivated
+          : null);
+  bool get _actionsApproved => integrationGuard?.allows(_viewIdentity) ?? true;
   EmployeeAttendanceState _state = const EmployeeAttendanceState(
     EmployeeAttendanceStatus.loading,
   );
@@ -170,16 +182,21 @@ final class EmployeeAttendanceWorkflow extends ChangeNotifier {
   bool get _canAct =>
       !_disposed &&
       !_busy &&
+      _actionsApproved &&
       _emptyJournal &&
       const {
         EmployeeAttendanceStatus.ready,
         EmployeeAttendanceStatus.invalidInput,
       }.contains(state.status);
   bool get canRecover =>
-      !_disposed && !_busy && state.recovery != AttendanceRecoveryAction.none;
+      !_disposed &&
+      !_busy &&
+      _actionsApproved &&
+      state.recovery != AttendanceRecoveryAction.none;
   bool get canConsume =>
       !_disposed &&
       !_busy &&
+      _actionsApproved &&
       state.status == EmployeeAttendanceStatus.confirmed;
 
   void _authorizationChanged() {
@@ -294,8 +311,16 @@ final class EmployeeAttendanceWorkflow extends ChangeNotifier {
     var transferred = false;
     _emptyJournal = false;
     try {
+      final configuration = integrationGuard?.configurationMessage;
+      if (configuration != null) {
+        throw AttendanceIntegrationFailure(configuration);
+      }
       context = issueContext();
       if (!_adopt(context)) return;
+      if (integrationGuard != null) {
+        await integrationGuard!.beforeRead(context.identity);
+      }
+      if (!_visible(context)) return;
       if (expected != null &&
           (expected.generation != context.identity.generation ||
               !expected.binding.matches(context.identity.binding))) {
@@ -337,6 +362,15 @@ final class EmployeeAttendanceWorkflow extends ChangeNotifier {
       } else {
         transferred = true;
         _apply(await coordinator.readActive(context, activeSessions), context);
+      }
+    } on AttendanceIntegrationFailure catch (failure) {
+      if (context == null || _visible(context)) {
+        _set(
+          EmployeeAttendanceState(
+            EmployeeAttendanceStatus.blocked,
+            message: failure.message,
+          ),
+        );
       }
     } catch (_) {
       if (context == null) {
@@ -383,6 +417,10 @@ final class EmployeeAttendanceWorkflow extends ChangeNotifier {
         );
         return;
       }
+      if (integrationGuard != null) {
+        await integrationGuard!.beforeAction(context.identity);
+      }
+      if (!_visible(context)) return;
       final revision = _viewSessionRevision;
       _emptyJournal = false;
       _set(
@@ -498,6 +536,10 @@ final class EmployeeAttendanceWorkflow extends ChangeNotifier {
         );
         return;
       }
+      if (integrationGuard != null) {
+        await integrationGuard!.beforeAction(context.identity);
+      }
+      if (!_visible(context)) return;
       _emptyJournal = false;
       _set(
         const EmployeeAttendanceState(
@@ -542,6 +584,10 @@ final class EmployeeAttendanceWorkflow extends ChangeNotifier {
         );
         return;
       }
+      if (integrationGuard != null) {
+        await integrationGuard!.beforeAction(context.identity);
+      }
+      if (!_visible(context)) return;
       final submission = action?.handoff();
       if (submission == null) {
         _set(
@@ -561,6 +607,16 @@ final class EmployeeAttendanceWorkflow extends ChangeNotifier {
         await coordinator.submit(submission.context, submission.command),
         context,
       );
+    } on AttendanceIntegrationFailure catch (failure) {
+      _emptyJournal = false;
+      if (context == null || _visible(context)) {
+        _set(
+          EmployeeAttendanceState(
+            EmployeeAttendanceStatus.blocked,
+            message: failure.message,
+          ),
+        );
+      }
     } catch (_) {
       if (context == null) {
         _set(
@@ -615,6 +671,10 @@ final class EmployeeAttendanceWorkflow extends ChangeNotifier {
         );
         return;
       }
+      if (integrationGuard != null) {
+        await integrationGuard!.beforeAction(context.identity);
+      }
+      if (!_visible(context)) return;
       _set(
         const EmployeeAttendanceState(
           EmployeeAttendanceStatus.awaitingConfirmation,
@@ -761,6 +821,7 @@ final class EmployeeAttendanceWorkflow extends ChangeNotifier {
     activeSessions.removeListener(_sessionsChanged);
     // This only revokes unsubmitted capture. Submitted work drains normally.
     unawaited(capture.close().catchError((Object _) {}));
+    onDisposed?.call();
     super.dispose();
   }
 }

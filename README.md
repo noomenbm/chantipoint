@@ -2,11 +2,11 @@
 
 ChantiPoint is an Android-first, French-language Flutter attendance application for JMService, using Supabase Auth and PostgreSQL with Row Level Security (RLS).
 
-The current Flutter app provides authentication and a manual factory attendance screen for M2.3a. Employees can read their active session, check in at the factory, and manually check out after server acknowledgement. The developer verified factory check-in and checkout against hosted `chantipoint-dev`; the business-timezone refactor has not been retested on Android. This legacy Flutter flow still collects no GPS. The approved M2.3b target instead attempts foreground fixes for factory and external attendance, derives classification on the backend, and permits unavailable evidence with review. The v2 RPCs are implemented locally behind a legacy-mode gate; Flutter acquisition and coordinated cutover remain pending. Location evidence is limited evidence from a device, not certain proof of employee presence or work performed.
+The normal app provides authentication, employee History and the existing v2 employee attendance workflow in a **guarded composition for review**. V2 writes and standalone note Save remain disabled: hosted capability, trusted deployment identity and safe writer cutover are not established. The developer approved replacing the legacy attendance panel, temporarily removing legacy check-in/out actions while retaining pending data. Existing development configuration supports login, History and sign-out; pointage displays an explicit unavailable notice without GPS or attendance requests. See [Normal attendance integration](docs/normal-attendance-integration.md) for activation prerequisites and lifetime rules. Location evidence, when eventually enabled, is limited device evidence rather than certain proof of presence or work performed.
 
 ## Current Development State
 
-- The normal employee home now includes read-only **Historique**, with six-calendar-month Montréal boundaries and bounded server-side pagination. Optional note/review projections require explicit deployment capabilities; the live default assumes neither. See [Employee Session History](docs/employee-session-history.md) for the window, authorization and compatibility limits. Attendance writes and standalone note Save are unchanged.
+- The normal employee home includes read-only **Historique**, with six-calendar-month Montréal boundaries and bounded server-side pagination. Optional note/review projections require explicit deployment capabilities; the live default assumes neither. See [Employee Session History](docs/employee-session-history.md) for the window, authorization and compatibility limits. No attendance write fallback or standalone note Save is enabled.
 - **M2.1 complete:** the initial database foundation is deployed to the hosted development project `chantipoint-dev`; 70 local pgTAP tests passed.
 - **M2.2 complete:** Flutter authentication and reliability improvements are implemented; 62 automated Flutter tests and static analysis passed.
 - Android emulator launch, hosted login, profile/role recognition, logout, session persistence, and disabled-profile checks were verified by the developer. See [Development Status](docs/development-status.md) for the recorded checks and remaining work.
@@ -41,6 +41,13 @@ flutter run `
 **`SUPABASE_URL` must be the base project URL, with no `/rest/v1/` or other API endpoint path.** The SDK constructs its Auth and database endpoints from this base URL. Shell environment variables alone are not Dart defines; the command above forwards them explicitly.
 
 Without the required defines, the app displays the French `Configuration requise` screen. Use only the publishable client key in Flutter; never supply service-role keys, database passwords, or user access tokens.
+
+These defines configure login and History. Attendance also needs an independently
+provisioned `ATTENDANCE_ENVIRONMENT_ID` and reviewed deployment/cutover authority;
+neither is established by supplying a URL or client key. Do not invent that ID or
+derive it from a journal. Missing identity leaves pointage visibly disabled, and
+supplying an identity alone still cannot enable writes. See the integration
+document linked above.
 
 Hosted-development authentication does not require local Docker. Start an Android target only when needed for an app check. Avoid unnecessary Gradle builds, SDK downloads, and cache cleaning on the development computer.
 

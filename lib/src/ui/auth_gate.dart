@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../auth/auth_controller.dart';
 import '../attendance/attendance_controller.dart';
 import '../attendance/history/session_history.dart';
+import '../attendance/integration/normal_attendance_composition.dart';
 import 'access_check_screen.dart';
 import 'authenticated_home_screen.dart';
 import 'login_screen.dart';
@@ -15,11 +16,15 @@ class AuthGate extends StatefulWidget {
     required this.authController,
     this.attendanceControllerFactory,
     this.historyRepositoryFactory,
+    this.employeeWorkflowFactory,
+    this.onDispose,
   });
 
   final AuthController authController;
   final AttendanceControllerFactory? attendanceControllerFactory;
   final SessionHistoryRepositoryFactory? historyRepositoryFactory;
+  final EmployeeAttendanceWorkflowFactory? employeeWorkflowFactory;
+  final VoidCallback? onDispose;
 
   @override
   State<AuthGate> createState() => _AuthGateState();
@@ -53,7 +58,11 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
   void didUpdateWidget(covariant AuthGate oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.authController != widget.authController) {
-      oldWidget.authController.dispose();
+      if (oldWidget.onDispose != null) {
+        oldWidget.onDispose!();
+      } else {
+        oldWidget.authController.dispose();
+      }
       unawaited(widget.authController.restoreSession());
     }
   }
@@ -62,7 +71,11 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     // The application gate owns the controller supplied to ChantiPointApp.
-    widget.authController.dispose();
+    if (widget.onDispose != null) {
+      widget.onDispose!();
+    } else {
+      widget.authController.dispose();
+    }
     super.dispose();
   }
 
@@ -100,6 +113,7 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
             user: state.user!,
             onSignOut: widget.authController.signOut,
             attendanceControllerFactory: widget.attendanceControllerFactory,
+            employeeWorkflowFactory: widget.employeeWorkflowFactory,
             historyRepositoryFactory: widget.historyRepositoryFactory == null
                 ? null
                 : (user, isMounted) => widget.historyRepositoryFactory!(

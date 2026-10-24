@@ -1,10 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'src/app.dart';
-import 'src/attendance/attendance_controller.dart';
-import 'src/attendance/file_pending_command_store.dart';
-import 'src/attendance/supabase_attendance_repository.dart';
+import 'src/attendance/integration/normal_attendance_composition.dart';
 import 'src/attendance/history/supabase_session_history_repository.dart';
 import 'src/auth/auth_controller.dart';
 import 'src/auth/supabase_auth_repository.dart';
@@ -26,7 +26,11 @@ Future<void> main() async {
 
   final authRepository = SupabaseAuthRepository(Supabase.instance.client);
   final authController = AuthController(authRepository);
-  final pendingCommands = FilePendingCommandStore();
+  final attendance = NormalAttendanceComposition(
+    auth: authController,
+    repository: authRepository,
+    config: config,
+  );
   runApp(
     ChantiPointApp(
       authController: authController,
@@ -36,12 +40,9 @@ Future<void> main() async {
             user,
             isCurrent,
           ),
-      attendanceControllerFactory: (user) => AttendanceController(
-        SupabaseAttendanceRepository(Supabase.instance.client, user),
-        pendingCommands,
-        user,
-        onAuthorizationFailure: authController.revalidateOnResume,
-      ),
+      employeeWorkflowFactory: attendance.createWorkflow,
+      onDispose: () =>
+          unawaited(attendance.close().whenComplete(authController.dispose)),
     ),
   );
 }

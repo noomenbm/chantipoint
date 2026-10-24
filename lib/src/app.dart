@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'auth/auth_controller.dart';
 import 'attendance/attendance_controller.dart';
 import 'attendance/history/session_history.dart';
+import 'attendance/integration/normal_attendance_composition.dart';
 import 'config/supabase_environment_config.dart';
 import 'ui/auth_gate.dart';
 
@@ -12,11 +13,15 @@ class ChantiPointApp extends StatelessWidget {
     required this.authController,
     this.attendanceControllerFactory,
     this.historyRepositoryFactory,
+    this.employeeWorkflowFactory,
+    this.onDispose,
   });
 
   final AuthController authController;
   final AttendanceControllerFactory? attendanceControllerFactory;
   final SessionHistoryRepositoryFactory? historyRepositoryFactory;
+  final EmployeeAttendanceWorkflowFactory? employeeWorkflowFactory;
+  final VoidCallback? onDispose;
 
   @override
   Widget build(BuildContext context) {
@@ -28,6 +33,8 @@ class ChantiPointApp extends StatelessWidget {
         authController: authController,
         attendanceControllerFactory: attendanceControllerFactory,
         historyRepositoryFactory: historyRepositoryFactory,
+        employeeWorkflowFactory: employeeWorkflowFactory,
+        onDispose: onDispose,
       ),
     );
   }
