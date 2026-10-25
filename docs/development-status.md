@@ -1,6 +1,30 @@
 # ChantiPoint Development Status
 
-Current follow-up: **normal development-authority integration**, based on
+Current follow-up: **isolated normal-app attendance rehearsal**, 2026-10-25,
+baseline `dda972a5ee1a4f8751a73d5f8920c93e13492778` on
+`feature/attendance-live-integration`. Normal `lib/main.dart`, real local Auth /
+PostgREST, signed native enrollment and encrypted storage completed two fictional
+check-in/check-out cycles on a new dedicated AVD. One committed check-in's reply
+was deliberately lost; explicit original-command replay after process restart
+recovered it without another session, event or location observation. Confirmed
+receipt recovery, consumption, final replacement note, closed History, logout
+and runtime no-trust-anchor denial also passed. Four actual foreground captures
+timed out: all evidence remains `location_unverified`, with no coordinates and
+`anomaly_open`; successful GPS fixes are still unverified.
+
+**137 focused Flutter tests**, analyzer and four debug APK builds passed. No
+application/native source or migration changes were needed. The disposable local
+email provider configuration was corrected while global public signup remained
+disabled and HTTP-tested. One later local Auth gateway HTTP 504 recovered on
+manual retry; its underlying cause is unestablished. Only documentation changed
+in the repository. Existing Pixel_9, the phone, retained local database and hosted
+development were untouched. Rehearsal services are stopped with data retained.
+See [acceptance report](normal-app-attendance-rehearsal.md) for exact evidence,
+test-harness corrections, limits and review inventory. Hosted activation remains
+separately unauthorized; this is fictional local acceptance, not production
+certification or completed employee/admin MVP.
+
+Previous slice: **normal development-authority integration**, based on
 `15c4ca0613ef13da6fad006302cc6530c939c07c`, preserving the prior ten uncommitted
 review files. The operator explicitly approved local routing/preflight and
 old-writer hooks directly in chat; those previously blocked edits are now applied.
