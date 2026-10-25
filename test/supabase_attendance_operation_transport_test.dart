@@ -137,6 +137,10 @@ void main() {
           expect(reply.dataJson, isNotNull);
           expect(requests.single.request.url.path, '/rest/v1/rpc/check_out_v2');
           expect(requests.single.request.method, 'POST');
+          expect(
+            requests.single.request.headers['x-chantipoint-attendance-epoch'],
+            identity.binding.environmentId,
+          );
           final outgoing = utf8.decode(requests.single.body);
           if (!replay) expect(outgoing, frozen);
           expect(
@@ -156,6 +160,10 @@ void main() {
         final command = journalCommand();
         final original = command.toJson();
         await dispatch(command: command, replay: replay);
+        expect(
+          requests.single.request.headers['x-chantipoint-attendance-epoch'],
+          identity.binding.environmentId,
+        );
         expect(
           JournalJson.decode(requests.single.body),
           command.rpcParameters(replayOnly: replay),

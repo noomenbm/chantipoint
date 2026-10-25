@@ -5,8 +5,11 @@ import 'package:chantipoint/src/attendance/attendance_request_authority.dart';
 import 'fake_attendance_operation_ports.dart';
 
 class FictionalRequestAuthority implements AttendanceRequestAuthority {
-  FictionalRequestAuthority(this.issuer);
+  FictionalRequestAuthority(this.issuer)
+    : expectedEpoch = issuer.binding.environmentId;
   final FictionalAttendanceIssuer issuer;
+  // Fictional independently configured issuer value, never from a request.
+  String? expectedEpoch;
   bool authorized = true;
   bool throwOnCurrent = false;
   int acquisitions = 0;
@@ -35,6 +38,7 @@ class FictionalRequestAuthority implements AttendanceRequestAuthority {
       projectUrl: projectUrl ?? Uri.parse(captured.binding.baseUrl),
       publishableKey: key,
       accessToken: token,
+      expectedAttendanceEpoch: expectedEpoch,
       isCurrent: current ?? () => isCurrent(captured),
     );
   }

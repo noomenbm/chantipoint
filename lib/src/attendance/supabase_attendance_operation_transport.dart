@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 
 import 'attendance_models.dart';
+import 'attendance_capability.dart';
 import 'attendance_operation_transport.dart';
 import 'attendance_request_authority.dart';
 import 'journal/journal_command.dart';
@@ -24,6 +25,7 @@ enum AttendanceHttpFailureKind {
   malformedResponse,
   authorizationUnavailable,
   staleObservation,
+  capabilityUnavailable,
 }
 
 /// Safe codes only. Never attach URLs, credentials, bodies or underlying errors.
@@ -44,12 +46,14 @@ final class SupabaseAttendanceOperationTransport
         AttendanceOperationTransport,
         AttendanceCanonicalReader,
         AttendanceActiveSessionQuery,
+        AttendanceCapabilityReader,
         SessionNoteTransport {
   SupabaseAttendanceOperationTransport({
     required this.authority,
     required this.client,
     this.projection = AttendanceSessionProjection.v2,
     this.authorizeWrite,
+    this.beforeAttendanceWrite,
   });
   @override
   final AttendanceRequestAuthority authority;
@@ -59,6 +63,65 @@ final class SupabaseAttendanceOperationTransport
   // It runs after asynchronous credential resolution, immediately before send.
   final void Function(AttendanceOperationIdentity identity, String path)?
   authorizeWrite;
+  // Normal composition supplies a fresh capability check as an additional
+  // denial boundary. This never replaces device/cutover approval.
+  final Future<void> Function(AttendanceOperationIdentity identity)?
+  beforeAttendanceWrite;
+
+  String _epoch(
+    AttendanceOperationIdentity identity,
+    AttendanceRequestScope scope,
+  ) {
+    final expected = scope.expectedAttendanceEpoch;
+    if (!isAttendanceEpoch(expected) ||
+        expected != identity.binding.environmentId) {
+      throw const AttendanceHttpFailure(
+        AttendanceHttpFailureKind.scopeMismatch,
+      );
+    }
+    return expected!;
+  }
+
+  @override
+  Future<AttendanceCapability> readCapability(
+    AttendanceOperationIdentity identity,
+  ) async {
+    final scope = await _acquire(identity);
+    final expected = _epoch(identity, scope);
+    final text = await _send(
+      identity,
+      scope,
+      'GET',
+      '/rest/v1/rpc/attendance_capability',
+      responseLimit: 1024,
+    );
+    _check(identity, scope);
+    final AttendanceCapability capability;
+    try {
+      capability = AttendanceCapability.parse(text);
+    } catch (_) {
+      throw const AttendanceHttpFailure(
+        AttendanceHttpFailureKind.malformedResponse,
+      );
+    }
+    if (capability.deploymentEpoch != expected) {
+      throw const AttendanceHttpFailure(
+        AttendanceHttpFailureKind.capabilityUnavailable,
+      );
+    }
+    _check(identity, scope);
+    return capability;
+  }
+
+  Future<void> requireV2Capability(AttendanceOperationIdentity identity) async {
+    final capability = await readCapability(identity);
+    _checkCurrent(identity);
+    if (!capability.v2Available) {
+      throw const AttendanceHttpFailure(
+        AttendanceHttpFailureKind.capabilityUnavailable,
+      );
+    }
+  }
 
   /// Separate keyed-note protocol, sharing only the pinned one-attempt HTTP
   /// machinery. No attendance command/DTO/journal conversion or live wiring.
@@ -242,12 +305,19 @@ final class SupabaseAttendanceOperationTransport
       );
     }
     final scope = await _acquire(identity);
+    final epoch = _epoch(identity, scope);
+    // Deny before the optional asynchronous check, and recheck both authority
+    // and cutover immediately before POST. Never replace this captured scope
+    // with credentials belonging to a newer account/generation.
+    authorizeWrite?.call(identity, '/rest/v1/rpc/${command.rpc}');
+    await beforeAttendanceWrite?.call(identity);
     final text = await _send(
       identity,
       scope,
       'POST',
       '/rest/v1/rpc/${command.rpc}',
       body: body,
+      epoch: epoch,
     );
     // Deliberately NO currency check after submission: C3.1 alone owns late
     // receipt validation/finalization. Only an exact, validated replay miss is
@@ -389,6 +459,8 @@ final class SupabaseAttendanceOperationTransport
     String path, {
     String? body,
     Map<String, String>? query,
+    String? epoch,
+    int responseLimit = SupabaseAttendanceOperationTransport.responseLimit,
   }) async {
     final request =
         http.Request(
@@ -401,6 +473,7 @@ final class SupabaseAttendanceOperationTransport
             'apikey': scope.publishableKey,
             'Authorization': 'Bearer ${scope.accessToken}',
             'Accept': 'application/json',
+            'x-chantipoint-attendance-epoch': ?epoch,
             if (method == 'POST')
               'Content-Type': 'application/json; charset=utf-8',
             if (method == 'POST') 'Content-Profile': 'public',
@@ -423,9 +496,10 @@ final class SupabaseAttendanceOperationTransport
     }
     _check(identity, scope); // No await between this check and submission.
     if (method == 'POST') authorizeWrite?.call(identity, path);
+    _check(identity, scope);
     try {
       final response = await client.send(request); // Exactly one send.
-      return await _consume(response);
+      return await _consume(response, responseLimit);
     } on AttendanceHttpFailure {
       rethrow;
     } catch (_) {
@@ -433,7 +507,10 @@ final class SupabaseAttendanceOperationTransport
     }
   }
 
-  static Future<String> _consume(http.StreamedResponse response) async {
+  static Future<String> _consume(
+    http.StreamedResponse response,
+    int responseLimit,
+  ) async {
     final success = response.statusCode >= 200 && response.statusCode < 300;
     final bytes = BytesBuilder();
     var count = 0;

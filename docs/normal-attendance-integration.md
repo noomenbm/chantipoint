@@ -41,7 +41,9 @@ There is no polling, automatic retry, continuous GPS or background tracking.
 ## Fail-closed deployment boundary
 
 `ATTENDANCE_ENVIRONMENT_ID` is optional trusted build configuration for an
-independently provisioned deployment-instance/restore epoch. It is not derived
+independently provisioned deployment-instance/restore epoch. Capability/v2 HTTP
+now requires its canonical UUID spelling; historical journal bindings remain
+unchanged and readable. It is not derived
 from the URL, user IDs, a journal or the current account. Its absence leaves login
 and History functional but blocks pointage **before local slot access, GPS or
 attendance HTTP**. No value is supplied in source. Supplying this identifier does
@@ -56,6 +58,15 @@ all old writers across restart/processes, held through settlement. A failed or
 absent check is denial, never permission. The transport rechecks approval after
 async credential acquisition, immediately before POST. Submitted responses are
 still allowed to settle after invalidation/approval withdrawal.
+
+The [activation-contract client boundary](attendance-activation-contract.md#client-capability-and-epoch-boundary)
+adds a fresh authenticated capability GET before capture and before attendance
+POST when an explicit test cutover authority approves. Strict parsing, matching
+independently trusted epoch and gate-2 availability are additional prerequisites,
+never a substitute for that approval. Every v2 initial/replay POST carries the
+original binding's epoch in its header, without modifying frozen RPC data.
+No production approval, capability cache, automatic epoch adoption or journal
+rebinding is provided. The real default stays blocked without these HTTP calls.
 
 Existing backup/device-transfer and client/privacy approval obligations also
 remain prerequisites; this composition does not approve or change backup policy.

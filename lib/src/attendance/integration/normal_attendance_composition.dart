@@ -9,6 +9,7 @@ import '../../config/supabase_environment_config.dart';
 import '../android_foreground_location.dart';
 import '../attendance_action_capture.dart';
 import '../attendance_auth_owner.dart';
+import '../attendance_capability.dart';
 import '../attendance_operation_coordinator.dart';
 import '../attendance_operation_transport.dart';
 import '../attendance_request_authority.dart';
@@ -52,7 +53,7 @@ final class NormalAttendanceComposition {
     String? configurationMessage;
     try {
       final environment = config.attendanceEnvironmentId;
-      if (environment.isEmpty || environment != environment.trim()) {
+      if (!isAttendanceEpoch(environment)) {
         throw const AttendanceIntegrationFailure(
           'Missing trusted deployment identity',
         );
@@ -80,11 +81,14 @@ final class NormalAttendanceComposition {
               (await AndroidLegacyMigration().inspect(binding)).source,
       notes: notes ?? const AndroidSessionNoteStorage(),
       enrichedSessions: projection == AttendanceSessionProjection.v2,
+      requireCapability: (identity) => transport.requireV2Capability(identity),
     );
     transport = SupabaseAttendanceOperationTransport(
       authority: owner ?? const _UnavailableAuthority(),
       client: this.client,
       projection: projection,
+      beforeAttendanceWrite: (identity) =>
+          transport.requireV2Capability(identity),
       authorizeWrite: (identity, path) {
         if (path != '/rest/v1/rpc/check_in_v2' &&
             path != '/rest/v1/rpc/check_out_v2') {

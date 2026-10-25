@@ -305,6 +305,7 @@ final class AttendanceAuthOwner
       projectUrl: deployment.projectUrl,
       publishableKey: deployment.publishableKey,
       accessToken: pinned.accessToken,
+      expectedAttendanceEpoch: deployment.environmentId,
       isCurrent: () => isCurrent(identity) && _usable(pinned),
     );
   }

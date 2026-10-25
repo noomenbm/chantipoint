@@ -62,12 +62,26 @@ class Harness {
   int inspections = 0;
   bool active = false, closed = false, loseReply = false;
   int readStatus = 200;
+  int capabilityGate = 2;
+  String? capabilityEpoch;
+  int capabilityStatus = 200;
   String? description, note;
   final requests = <http.Request>[];
   Completer<void>? responseGate, submitted;
   bool clientClosed = false;
   late final client = _Client((request) async {
     requests.add(request);
+    if (request.url.path.endsWith('/attendance_capability')) {
+      return http.Response(
+        jsonEncode({
+          'capability_version': 1,
+          'deployment_epoch': capabilityEpoch ?? journalBinding().environmentId,
+          'write_contract': capabilityGate,
+          'v2_available': capabilityGate == 2,
+        }),
+        capabilityStatus,
+      );
+    }
     if (request.method == 'POST') {
       final command = operations.record!.command!;
       final p = jsonDecode(request.body) as Map<String, dynamic>;
@@ -414,6 +428,27 @@ void main() {
       expect(h.operations.disk.writes, 0);
     },
   );
+
+  for (final issue in ['gate1', 'rotated', 'unavailable']) {
+    test(
+      'capability $issue blocks fresh action before GPS or journal preparation',
+      () async {
+        await h.start();
+        await h.workflow.refresh();
+        if (issue == 'gate1') h.capabilityGate = 1;
+        if (issue == 'rotated') h.capabilityEpoch = journalOtherId;
+        if (issue == 'unavailable') h.capabilityStatus = 503;
+        await h.workflow.checkIn();
+        expect(h.location.calls, 0);
+        expect(h.operations.disk.writes, 0);
+        expect(
+          h.requests.where((request) => request.method == 'POST'),
+          isEmpty,
+        );
+        expect(h.composition.owner!.outstandingAttempts, 0);
+      },
+    );
+  }
 
   for (final intent in [
     const CheckoutNoteIntent.preserve(),

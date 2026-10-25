@@ -14,8 +14,11 @@ capability and transaction-bound expected-epoch header. It leaves gate 1 and all
 four legacy/note behaviors intact. Gate 2 will reject **all** calls to those four
 endpoints, including replay. V2 receipt/hash/command contracts remain unchanged.
 The new contract was validated locally; **nothing was deployed or activated** in
-that implementation. Client authority/header wiring, enrollment/provenance,
-durable retirement and supervised maintenance remain outstanding.
+that implementation. The client follow-up now validates authenticated capability
+reads against independently configured UUID epochs and adds the epoch header to
+v2 submit/replay without rebinding commands. Normal cutover approval still denies;
+enrollment/provenance, durable retirement and supervised maintenance remain
+outstanding. A matching gate-2 snapshot alone cannot authorize the device.
 
 The implementation/tests/limits in that document supersede the assessment's
 earlier proposed server controls. In particular, normal state UPDATEs now take

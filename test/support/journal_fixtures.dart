@@ -17,7 +17,7 @@ const journalKey = 'fictional-journal-key-0001';
 final journalTime = DateTime.utc(2026, 10, 17, 14, 30);
 
 JournalBinding journalBinding({
-  String environment = 'fixture-deployment-1',
+  String environment = '00000000-0000-4000-8000-000000000099',
   String url = 'https://fixture.invalid',
   String auth = '00000000-0000-4000-8000-000000000001',
   String company = '00000000-0000-4000-8000-000000000002',

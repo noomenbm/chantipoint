@@ -36,12 +36,14 @@ final class AttendanceIntegrationGuard {
     required this.inspectLegacy,
     required this.notes,
     required this.enrichedSessions,
+    this.requireCapability,
   });
   final String? configurationMessage;
   final AttendanceCutoverAuthority cutover;
   final LegacyAttendanceInspection inspectLegacy;
   final SessionNoteStorage notes;
   final bool enrichedSessions;
+  final Future<void> Function(AttendanceOperationIdentity)? requireCapability;
   static const notActivated =
       'Le nouveau pointage n’est pas encore activé. '
       'Les entrées, sorties et reprises sont indisponibles. '
@@ -99,6 +101,7 @@ final class AttendanceIntegrationGuard {
   Future<void> beforeAction(AttendanceOperationIdentity identity) async {
     requireApproval(identity);
     await beforeRead(identity);
+    await requireCapability?.call(identity);
     requireApproval(identity);
   }
 }

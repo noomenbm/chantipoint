@@ -49,6 +49,7 @@ void main() {
     expect(scope.identity.generation, context.identity.generation);
     expect(scope.accessToken, b.client.auth.currentSession!.accessToken);
     expect(scope.projectUrl.toString(), 'https://fixture.invalid');
+    expect(scope.expectedAttendanceEpoch, b.owner.deployment.environmentId);
     expect(b.owner.outstandingAttempts, 1);
     expect(b.profileCalls, 1);
   });

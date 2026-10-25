@@ -23,12 +23,17 @@ final class AttendanceRequestScope {
     required this.publishableKey,
     required this.accessToken,
     required this._isCurrent,
+    this.expectedAttendanceEpoch,
   });
 
   final AttendanceOperationIdentity identity;
   final Uri projectUrl;
   final String publishableKey;
   final String accessToken;
+  // Independently provisioned deployment identity; NEVER copied from a journal
+  // or capability response. Null supports old read-only/isolated authorities,
+  // but denies capability checks and v2 dispatch. No persisted binding rewrite.
+  final String? expectedAttendanceEpoch;
   final bool Function() _isCurrent;
   bool get isCurrent => _isCurrent();
 }

@@ -37,6 +37,9 @@ class SupabaseEnvironmentConfig {
   final List<String> missingValues;
   final String keySource;
   // Independently provisioned deployment instance/restore epoch, not a URL alias.
+  // For capability/v2 dispatch this must be the server's canonical UUID, supplied
+  // through reviewed configuration, never learned from attendance_capability.
+  // Historical journal bindings are not rewritten to conform to this contract.
   // Missing does not disable login/History and NEVER creates an invented binding.
   final String attendanceEnvironmentId;
 

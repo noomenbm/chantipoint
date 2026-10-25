@@ -4,8 +4,9 @@ Baseline: `36d1ab4`, `feature/attendance-live-integration`. Migration
 `20261025000100_attendance_activation_contract.sql` is **local only**. The four
 earlier attendance migrations are now deployed to `chantipoint-dev`; its five
 migration baseline passed 19 schema postchecks and the normal-app History smoke.
-Hosted gate remains 1. This slice made **no hosted request or change**, no client
-change, and no activation. All previously applied migrations remain unchanged.
+Hosted gate remains 1. The server slice made **no hosted request or change** and
+no activation. The client follow-up below also makes no hosted request or change.
+All previously applied migrations remain unchanged.
 
 ## Server state and read-only capability
 
@@ -100,9 +101,91 @@ emergency stop or approved rollback plan**. A separately reviewed maintenance/
 withdrawal procedure is required before actual activation. Client receipt-only
 finalization of submitted work and uncertain outcomes must remain intact.
 
-The normal Save button remains disabled and attendance remains guarded. This
-slice supplies no client header adapter, capability consumer/authority, trusted
-configuration issuer, device enrollment, legacy migration or UI changes.
+The normal Save button remains disabled and attendance remains guarded. The
+server migration supplies no trusted configuration issuer, device enrollment,
+legacy migration or UI changes. The client boundary is described next.
+
+## Client capability and epoch boundary
+
+The client follow-up is based on `de3ef11`. `AttendanceCapability` validates an
+exact, duplicate-free four-field object: integer version 1, canonical lowercase
+UUID, integer gate 1/2 and a Boolean availability consistent with that gate.
+The explicit null-epoch/null-gate/false missing-state response is recognized as
+unavailable. Unknown fields, types, versions, duplicates (including escaped key
+aliases), truncation, trailing data and inconsistent availability are rejected.
+
+`SupabaseAttendanceOperationTransport.readCapability` makes one authenticated GET
+using the captured, memory-only request scope. It reuses the existing non-retrying,
+redirect-disabled HTTP boundary, strictly decodes UTF-8, retains at most 1 KiB and
+consumes the response stream through settlement. HTTP/schema/auth/network errors
+remain safe typed failures; no raw body or credential enters exception text.
+Authorization, complete five-field binding, generation and trusted endpoint are
+checked after asynchronous credential acquisition, before sending and after the
+complete read. A stale observation cannot be published. No capability is cached,
+persisted or promoted into a dispatch approval.
+
+`ATTENDANCE_ENVIRONMENT_ID` remains the independently provisioned deployment
+identity. Its former arbitrary-text model is compatible with historical journal
+decoding but insufficient for this UUID server contract. The smallest compatible
+change requires a canonical UUID **at normal composition and capability/v2 HTTP
+boundaries**, without changing the journal schema or rewriting any binding.
+`AttendanceAuthOwner` supplies `expectedAttendanceEpoch` from its independently
+trusted deployment configuration in each pinned scope. Missing, noncanonical or
+different scope identity fails closed. Neither a capability response nor a
+journal, URL or account supplies the expected value. This is configuration
+validation, not a production provisioning/enrollment workflow; no actual epoch or
+configuration value is added to source by this slice.
+
+Each v2 check-in, checkout and replay sends
+`x-chantipoint-attendance-epoch` only after verifying that the trusted scope epoch
+equals the command operation's original binding. Frozen RPC JSON, hashes, keys,
+timestamps, final-note intent and raw receipts are untouched. Older arbitrary
+environment labels stay readable but cannot be sent as epochs. A changed server
+epoch blocks the old binding; it never causes automatic adoption or rebinding.
+Changing build configuration cannot prove that a prior namespace contains no
+pending work: cross-namespace inventory/reconciliation remains a cutover gate.
+
+Normal composition still defaults to `UnapprovedAttendanceCutover`, uses its
+existing conservative projection, and supplies no approval issuer. The capability
+check is an **additional denial boundary**: with an explicit fictional approval,
+it runs before capture and again before submit/replay. Each check is a fresh GET;
+no polling or automatic retries are added. Approval and pinned authorization are
+rechecked immediately before POST. A capability can change after the GET; the
+server transaction's epoch/gate guards remain authoritative. Its rejection or a
+lost response retains uncertainty, not proof of rollback.
+
+The isolated raw transport can be tested with explicit fictional authorities
+without a capability callback; normal composition always installs that callback
+and its separate approval check. Gate 1 remains a valid unavailable capability.
+Although the server can replay retained v2 proof at gate 1, this slice does not
+unlock normal-app replay or receipt consumption. Original pending commands and
+bindings survive mismatch, network error, logout and rotation; already-submitted
+responses still settle for C3 receipt-only finalization without stale refresh.
+Legacy dispatch and standalone Save remain disabled. No native storage, device
+enrollment, migration, active-company permission or production cutover authority
+is implemented here.
+
+Client validation (mocked HTTP and fictional identities only):
+
+```powershell
+flutter test --no-pub --concurrency=1 test/attendance_capability_test.dart test/supabase_attendance_operation_transport_test.dart test/normal_attendance_integration_test.dart test/attendance_auth_owner_test.dart test/scoped_attendance_active_session_reader_test.dart test/session_note_http_test.dart
+flutter analyze --no-pub
+flutter test --no-pub --concurrency=1
+git diff --check
+```
+
+Final focused suite: **331 passed**. Full serial suite: **1,673 passed**, zero
+failures/skips. Analysis: **no issues**. Tests cover strict parsing, gate 1/2,
+missing/wrong epochs, rotation, wrong-project scopes, logout/same-user relogin/
+account switching during acquisition/read, initial/replay headers, preserved
+frozen note/evidence/receipt data, retained pending bytes and old text bindings,
+and a server rejection after a matching snapshot. Existing late-response tests
+still retain complete receipts without a stale canonical refresh. Initial new
+test compilation and analyzer findings were corrected before these final runs.
+C: remained above 14.95 GiB at sampled checks (15.07 GiB initially); E: 17.22 GiB.
+No native code changed; Android/emulator, hosted API/header forwarding, SQL/pgTAP
+and deployment checks were not rerun for this client slice. No actual journals,
+employee data or external services were read/written.
 
 ## Local validation
 
@@ -159,14 +242,15 @@ function bodies/history/gate storage; do not treat those old fingerprints as the
 postcheck contract for six migrations. Updated operator postchecks and actual
 GET/header-forwarding API checks are prerequisites for a later approved deployment.
 
-No Flutter/analyzer/Android test was run: no client/native code changed. No hosted
+No Flutter/analyzer/Android test was run in the server slice: no client/native code changed. No hosted
 RPC/deployment, activation, enrollment, GPS/UI work or real employee data was used.
 
 ## Remaining cutover prerequisites
 
 Review/deploy this migration separately while retaining gate 1, with new operator
-postchecks and a supervised withdrawal plan. Implement the client pinned-scope
-epoch header/capability authority without mutating command bytes or rebinding work.
+postchecks and a supervised withdrawal plan. Review the client pinned-scope
+header/capability boundary above and provision its expected UUID through an
+independent trusted configuration/enrollment process, without rebinding work.
 Establish independent legacy provenance, durable device/source ownership and old
 writer fencing; resolve/quarantine every pending legacy/note/attendance state.
 Inventory/restore/backup policy and pre-upgrade drain proof remain necessary.

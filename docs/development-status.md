@@ -1,6 +1,28 @@
 # ChantiPoint Development Status
 
-Current slice: **local v2 activation contract**, baseline `36d1ab4`, branch
+Current slice: **client capability and epoch integration**, baseline `de3ef11`,
+branch `feature/attendance-live-integration`. Strict authenticated capability GETs
+now validate version, exact fields, gate/availability and server epoch against the
+independently configured request scope. V2 check-in, checkout and replay carry
+the original binding's epoch in a header; frozen commands, keys, receipts and
+journal schema remain unchanged. `ATTENDANCE_ENVIRONMENT_ID` must be a canonical
+UUID at the new HTTP/normal-composition boundary; old text bindings stay readable
+and preserved, without automatic rebinding. Capability checks never issue device
+approval or establish provenance. `UnapprovedAttendanceCutover` remains the real
+default; legacy dispatch and standalone Save remain disabled. See the
+[client boundary](attendance-activation-contract.md#client-capability-and-epoch-boundary).
+
+Client validation: **331 focused** and **1,673 full serial Flutter tests passed**;
+analysis found no issues; `git diff --check` passed. Fictional mocked tests cover
+strict capabilities, gate 1/2, epoch rotation, auth races, original/replay headers,
+and pending-record preservation. No hosted/API, SQL, native build or device test
+was performed. No client configuration values or credentials were added. Before
+enabled attendance: separately approved deployment/postchecks, independent epoch
+provisioning, durable device enrollment, legacy-work reconciliation and old-writer
+fencing, plus supervised cutover validation. Standalone Save needs its separate
+shared note/checkout recovery approval and remains disabled.
+
+Previous slice: **local v2 activation contract**, baseline `36d1ab4`, branch
 `feature/attendance-live-integration`. The four prior schema migrations are now
 deployed to `chantipoint-dev`; five-migration postchecks and normal-app History
 smoke passed, hosted gate 1 and guarded app unchanged. New forward migration
