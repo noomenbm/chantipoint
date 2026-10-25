@@ -2,8 +2,11 @@ package com.example.chantipoint.location
 
 import android.app.Activity
 import android.app.Instrumentation
+import android.content.Context
 import android.content.Intent
+import android.location.LocationManager
 import android.os.Bundle
+import android.os.CancellationSignal
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityNodeInfo
 import com.example.chantipoint.MainActivity
@@ -16,7 +19,9 @@ import io.flutter.plugin.common.MethodChannel
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
-/** Fictional emulator fixture only. No production diagnostic controls. */
+/** Isolated location fixture. No production diagnostic controls or fix logging.
+ * acquire is location-only and never automates the user's permission controls.
+ */
 class ForegroundLocationInstrumentation : Instrumentation() {
     private var scenario = "allow"
     override fun onCreate(arguments: Bundle?) {
@@ -34,13 +39,26 @@ class ForegroundLocationInstrumentation : Instrumentation() {
         val cacheId = "c4-isolated-test-engine"
         try {
             check(targetContext.packageName == "com.example.chantipoint.locationvalidation")
-            check(scenario in setOf("allow", "deny", "approximate", "services_off"))
+            check(scenario in setOf("allow", "deny", "approximate", "services_off", "acquire"))
             val ready = CountDownLatch(1)
             val finished = CountDownLatch(1)
             var passed = false
             var diagnostic = "no_reply"
             var clicked = false
             var systemUiWaits = 0
+            var nativeIdle = false
+            var observedSignal: CancellationSignal? = null
+            // Test-only read of ownership/cancellation, never the returned Location.
+            fun observeNative() {
+                val field = MainActivity::class.java.getDeclaredField("foregroundLocation").apply { isAccessible = true }
+                val bridge = field.get(activity) ?: error("bridge unavailable")
+                val current = bridge.javaClass.getDeclaredField("active").apply { isAccessible = true }.get(bridge)
+                nativeIdle = current == null
+                if (current != null) {
+                    observedSignal = current.javaClass.getDeclaredField("signal")
+                        .apply { isAccessible = true }.get(current) as CancellationSignal
+                }
+            }
             stage = "engine"
             lateinit var probeEngine: FlutterEngine
             runOnMainSync {
@@ -82,6 +100,7 @@ class ForegroundLocationInstrumentation : Instrumentation() {
             }
             val deadline = SystemClock.elapsedRealtime() + 60000
             while (finished.count != 0L && SystemClock.elapsedRealtime() < deadline) {
+                runOnMainSync { observeNative() }
                 if (scenario in setOf("allow", "deny") && !clicked) {
                     val root = uiAutomation.rootInActiveWindow
                     if (root != null) {
@@ -94,8 +113,11 @@ class ForegroundLocationInstrumentation : Instrumentation() {
                 }
                 finished.await(150, TimeUnit.MILLISECONDS)
             }
-            success = finished.count == 0L && passed && (scenario !in setOf("allow", "deny") || clicked)
-            report.putString("stream", "C4 $scenario: ${if (success) "PASS" else "FAIL"}; permission_dialog_clicked=$clicked; system_ui_waits=$systemUiWaits; $diagnostic")
+            runOnMainSync { observeNative() }
+            val manager = targetContext.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+            val providers = manager.getProviders(true).filter { it in setOf("gps", "fused", "network", "passive") }.sorted().joinToString(",")
+            success = finished.count == 0L && passed && nativeIdle && (scenario !in setOf("allow", "deny") || clicked)
+            report.putString("stream", "C4 $scenario: ${if (success) "PASS" else "FAIL"}; permission_dialog_clicked=$clicked; system_ui_waits=$systemUiWaits; enabled_providers=$providers; native_idle=$nativeIdle; native_cancelled=${observedSignal?.isCanceled ?: "not_observed"}; $diagnostic")
         } catch (_: Exception) {
             report.putString("stream", "C4 $scenario: harness_unavailable:$stage")
         } finally {

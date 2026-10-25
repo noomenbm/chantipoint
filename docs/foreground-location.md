@@ -1,5 +1,12 @@
 # C4 foreground location and immutable action capture
 
+Current runtime follow-up (2026-10-25): the isolated `acquire` scenario obtained
+a real physical Android 13 fused fix and a simulated emulator fix. It requires
+an actual returned fix rather than accepting a timeout. See
+[runtime validation](gps-runtime-validation.md) for timing, native cancellation,
+privacy and environment limits. The C4 slice description below is historical;
+normal-app integration is described in [development status](development-status.md).
+
 This is an isolated implementation, not a live attendance cutover. Main/screens
 and the legacy controller still use their original GPS-free factory path.
 Hosted Supabase, the deployment gate, journal migration and C3 sequencing are
@@ -141,12 +148,17 @@ $env:JAVA_HOME = 'C:/Program Files/Android/Android Studio/jbr'
 ```
 
 Install only the isolated app/test APKs for runtime checks. The runner accepts
-`-e scenario allow`, `deny`, `approximate`, or `services_off`. Prepare permissions
+`-e scenario allow`, `deny`, `approximate`, `services_off`, or `acquire`. The
+`acquire` scenario invokes only foreground location, requires a valid fix,
+reports safe timing/status and native settlement, and never automates permission
+taps. Use it for explicitly authorized physical-device location-only tests;
+the developer handles permission dialogs. It sends no attendance or backend work.
+Prepare permissions
 and service state only for that isolated emulator app. Restore services afterward
 and stop the emulator. The allow/deny scenarios require an observed system-dialog
 click; an existing grant must not be mistaken for testing the prompt. A real
 emulator timeout/unavailable outcome is reported as such, never fabricated into
-a fix. There is no physical-device/real employee approval from these checks.
+a fix. Those legacy emulator checks confer no real employee collection approval.
 
 Use existing one-worker/1 GiB Gradle limits. Keep host tests, builds and emulator
 sequential; C4 restores the **5 GiB C: stop rule** (proactive 5.5 GiB startup stop).

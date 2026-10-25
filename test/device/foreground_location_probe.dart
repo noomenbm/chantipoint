@@ -2,6 +2,7 @@
 import 'package:chantipoint/src/attendance/android_foreground_location.dart';
 import 'package:chantipoint/src/attendance/attendance_action_capture.dart';
 import 'package:chantipoint/src/attendance/foreground_location.dart';
+import 'package:chantipoint/src/attendance/location_evidence.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
@@ -14,6 +15,41 @@ void main() {
   _control.setMethodCallHandler((call) async {
     if (call.method != 'run') return null;
     final scenario = call.arguments as String;
+    if (scenario == 'acquire') {
+      // Location only: no attendance intent, key, journal, auth or backend.
+      // This scenario requires a real returned fix, unlike the allow policy test.
+      final timer = Stopwatch()..start();
+      final evidence = await ForegroundLocationService(
+        const AndroidForegroundLocation(),
+      ).acquire();
+      timer.stop();
+      final latitude = evidence.latitude;
+      final longitude = evidence.longitude;
+      final hasFix =
+          evidence.result == LocationAcquisitionResult.fix &&
+          latitude != null &&
+          latitude.isFinite &&
+          latitude >= -90 &&
+          latitude <= 90 &&
+          longitude != null &&
+          longitude.isFinite &&
+          longitude >= -180 &&
+          longitude <= 180 &&
+          evidence.observedAt != null;
+      final accuracy = evidence.accuracyMeters;
+      // Never render/log/return coordinates, fix time or raw Location objects.
+      await _control.invokeMethod<void>('finish', {
+        'passed': hasFix,
+        'diagnostic':
+            'permission=${evidence.permission?.sqlValue} '
+            'services_enabled=${evidence.servicesEnabled} '
+            'result=${evidence.result?.sqlValue} '
+            'provider=${evidence.provider?.sqlValue} has_fix=$hasFix '
+            'accuracy_available=${accuracy != null && accuracy.isFinite && accuracy >= 0} '
+            'elapsed_ms=${timer.elapsedMilliseconds}',
+      });
+      return null;
+    }
     var passed = false;
     var diagnostic = 'probe_unavailable';
     final capture = AttendanceActionCapture(

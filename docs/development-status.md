@@ -1,6 +1,21 @@
 # ChantiPoint Development Status
 
-Current follow-up: **isolated normal-app attendance rehearsal**, 2026-10-25,
+Current follow-up: **foreground location runtime validation**, 2026-10-25,
+baseline `3060a85c8765d2787121fc5fddf7c468edeebac8` on
+`feature/attendance-live-integration`. The isolated package obtained a real
+physical Android 13 fused fix with precise permission and accuracy available
+in 4,545 ms. The dedicated emulator timed out without supplied location, correctly
+cancelled its native signal and returned to idle, then acquired a simulated fused
+fix after one fictional delivery. Coordinates were never logged or archived.
+No production defect was reproduced or production source changed. Two existing
+test harnesses now support strict location-only acquisition and safe native
+settlement diagnostics. **97 focused Flutter tests**, analysis and isolated
+app/test APK builds passed. See [runtime report](gps-runtime-validation.md) for
+the emulator delivery limits, a separate phone invocation that failed before its
+first frame, exact outcomes and review package. This establishes
+isolated physical acquisition, not successful GPS in a normal attendance action.
+
+Previous follow-up: **isolated normal-app attendance rehearsal**, 2026-10-25,
 baseline `dda972a5ee1a4f8751a73d5f8920c93e13492778` on
 `feature/attendance-live-integration`. Normal `lib/main.dart`, real local Auth /
 PostgREST, signed native enrollment and encrypted storage completed two fictional
