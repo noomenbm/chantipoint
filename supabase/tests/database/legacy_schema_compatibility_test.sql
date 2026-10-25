@@ -6,6 +6,12 @@ set local lock_timeout = '5s';
 create extension if not exists pgtap with schema extensions;
 select no_plan();
 
+-- Request metadata is separate from the frozen v2 payload (activation contract).
+do $$ begin
+  perform set_config('request.headers',jsonb_build_object('x-chantipoint-attendance-epoch',
+    (select deployment_epoch::text from private.attendance_deployment where singleton))::text,true);
+end $$;
+
 select is(private.attendance_write_contract(), 1, 'schema deployment retains legacy mode');
 
 create temporary table compatibility_fixture as

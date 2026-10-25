@@ -1,6 +1,26 @@
 # ChantiPoint Development Status
 
-Current slice: **development schema deployment preparation, legacy retained**,
+Current slice: **local v2 activation contract**, baseline `36d1ab4`, branch
+`feature/attendance-live-integration`. The four prior schema migrations are now
+deployed to `chantipoint-dev`; five-migration postchecks and normal-app History
+smoke passed, hosted gate 1 and guarded app unchanged. New forward migration
+`20261025000100` was applied **locally only**, retaining gate 1. It adds the private
+server gate/epoch, read-only capability, v2 request-header epoch guard and complete
+legacy/note endpoint retirement at gate 2. No client or hosted change occurred.
+
+Validation: **7** populated-upgrade assertions passed before local application
+(DDL/fixtures rolled back); **69** focused and **859** full pgTAP assertions passed;
+**7** fence assertions passed with two real blocked overlaps and stale snapshot
+rejection. Earlier fixture-only failures were corrected without editing the
+applied migration. See [activation contract](attendance-activation-contract.md)
+for behavior, exact commands, local state and remaining deployment/client/device
+prerequisites. Standalone Save remains disabled. No Flutter/Android retest.
+Final local state: six migrations, gate 1, one server deployment row, original
+epoch retained, all nine checked data tables empty, pgTAP absent and database
+stopped cleanly with its volume retained. All eleven new function bodies match
+the migration. C: free 15.04 GiB after shutdown; no image pull or hosted request.
+
+Previous slice: **development schema deployment preparation, legacy retained**,
 branch `feature/attendance-live-integration`, HEAD `86aeb71`, preserving all seven
 previous assessment files. The linked project was verified again as
 `chantipoint-dev`; read-only checks still show only the initial migration and

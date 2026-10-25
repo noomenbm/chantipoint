@@ -4,14 +4,19 @@ This guide covers the deployed M2.1 baseline, M2.2/M2.3a client, and the locally
 
 ## Current State
 
-- The four pending migrations are prepared for a separate **legacy-mode schema
-  deployment**: [review/checklist and actual local validation](development-schema-deployment.md).
-  Keep gate 1 and legacy RPC grants; no hosted deployment occurred. The later
-  v2 cutover controls are not prerequisites for this schema-only stage.
-- Latest read-only hosted verification (2026-10-24, branch
+- The four formerly pending schema migrations are now deployed to
+  `chantipoint-dev` (five total); 19 stage-specific postchecks and normal-app
+  History smoke passed, gate 1. The new
+  [activation contract](attendance-activation-contract.md) `20261025000100` is
+  **local only** and retains gate 1. No client authority or hosted activation.
+- The completed **legacy-mode schema deployment** was prepared using the
+  [review/checklist and local validation](development-schema-deployment.md).
+  That historical preparation made no hosted change; deployment followed later.
+  Gate 1 and legacy RPC behavior were retained.
+- Historical read-only hosted verification before that deployment (2026-10-24, branch
   `feature/attendance-live-integration` at `86aeb71`) confirms `chantipoint-dev`
-  still has **only the initial migration**, no v2/private gate or note column.
-  The enriched v2 projection is not yet compatible. See the
+  had **only the initial migration**, no v2/private gate or note column.
+  The enriched v2 projection was incompatible at that time. See the
   [cutover assessment](development-attendance-cutover.md) for exact evidence,
   pending-command safeguards, required legacy-writer retirement and proposed
   deployment/test sequence. This verification did not activate or deploy anything.
@@ -35,21 +40,27 @@ The initial migration is already deployed to `chantipoint-dev`:
 
 1. `supabase/migrations/20261013000100_initial_attendance_foundation.sql`
 
-Additional migrations applied and validated locally; not deployed to hosted development:
+The following four additional migrations are now deployed to hosted development,
+with gate 1 retained (the earlier local-validation records below are historical):
 
 2. `supabase/migrations/20261016000100_attendance_location_foundations.sql`
 3. `supabase/migrations/20261017000100_attendance_v2_contract.sql`
 4. `supabase/migrations/20261017000200_employee_session_notes.sql` (all applied/tested locally; legacy gate remains 1).
 5. `supabase/migrations/20261021000100_settled_employee_note_operations.sql`
-   (also locally validated; hosted inspection confirms it is pending).
+   (locally validated and subsequently deployed).
+
+6. `supabase/migrations/20261025000100_attendance_activation_contract.sql`
+   is new and **local only**. It keeps gate 1, adds the gate/epoch capability and
+   header guard, and retires old/note endpoints at gate 2. Do not edit prior files
+   or reuse the five-migration 19-fingerprint check as a six-migration postcheck.
 
 For schema-only deployment with legacy retained, use the
 [dedicated checklist](development-schema-deployment.md); the four existing files
 need no rewrite or additional control migration for gate 1. Both note RPCs become
 authenticated-callable independently of the gate; the app Save button stays off.
 
-Do not combine this deployment with enabling gate 2. The cutover assessment requires
-a separately reviewed forward control migration, deployment identity, old/note
+Do not combine schema deployment with enabling gate 2. The cutover assessment requires
+review/deployment of the new local control migration, trusted identity, old/note
 writer fencing, device ownership and compatible recovery before activation.
 
 Keep the initial committed migration unchanged as the baseline. Future schema changes require new migrations, local validation, and explicit approval before hosted deployment.

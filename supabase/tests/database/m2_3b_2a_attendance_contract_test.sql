@@ -2,6 +2,12 @@ begin;
 create extension if not exists pgtap with schema extensions;
 select no_plan();
 
+-- Request metadata is separate from the frozen v2 payload (activation contract).
+do $$ begin
+  perform set_config('request.headers',jsonb_build_object('x-chantipoint-attendance-epoch',
+    (select deployment_epoch::text from private.attendance_deployment where singleton))::text,true);
+end $$;
+
 -- All configuration and fixtures, including simulated cutover, roll back.
 insert into auth.users (id, aud, role, email, encrypted_password, email_confirmed_at)
 select ('81000000-0000-0000-0000-' || lpad(n::text, 12, '0'))::uuid,
@@ -116,37 +122,41 @@ select throws_ok($$select pg_temp.contract_in('contract-null-gate-001')$$, 'P000
   'attendance_contract_not_enabled', 'unexpected NULL gate fails closed');
 reset role;
 
--- Trusted, rollback-only simulation; the same exclusive lock is required for cutover.
-select pg_advisory_xact_lock(174811, 2);
-create or replace function private.attendance_write_contract()
-returns integer language sql volatile set search_path = '' as $$ select 2 $$;
+-- Close the original legacy fixture while gate 1 is still enabled.
+do $$ begin execute (select definition from contract_definitions where label='gate'); end $$;
 set local role authenticated;
-select is(public.check_in('factory', null, (select (payload->>'action_at')::timestamptz from contract_base),
-  'contract-legacy-in-001')->>'status', 'idempotent_replay', 'accepted legacy check-in remains replayable after cutover');
-select is(public.check_out((select (result->>'session_id')::uuid from contract_results where label = 'legacy_closed_in'),
-  'contract-legacy-out-001', (select (payload->>'action_at')::timestamptz from contract_base))->>'status',
-  'idempotent_replay', 'pre-cutover legacy checkout hash still replays exactly');
-select throws_ok($$select public.check_in('factory', null, null, 'contract-new-legacy-001')$$,
-  'P0001', 'attendance_client_update_required', 'new legacy factory claim cannot bypass v2 after activation');
-select throws_ok($$select public.check_in('external_worksite', null, null, 'contract-new-legacy-002', 0, 0, 1, 'gps')$$,
-  'P0001', 'attendance_client_update_required', 'new legacy external claim also cannot bypass v2');
-select throws_ok($$select public.check_in('factory', 'changed', (select (payload->>'action_at')::timestamptz from contract_base), 'contract-legacy-in-001')$$,
-  '23505', 'idempotency_key_conflict', 'legacy replay still checks its original semantic hash');
-select throws_ok($$select private.check_in_legacy_impl('factory', null, null, 'contract-bypass-001')$$,
-  '42501', null::text, 'old implementation cannot be invoked directly by employee');
-insert into contract_results values ('legacy_adapter', public.check_out(
-  (select (result->>'session_id')::uuid from contract_results where label = 'legacy_active'),
-  'contract-adapter-out-001', (select (payload->>'action_at')::timestamptz from contract_base)));
-select is((select result->>'status' from contract_results where label = 'legacy_adapter'), 'closed', 'legacy adapter permits authorized active-session checkout');
-select is((select array_agg(k order by k) from contract_results, lateral jsonb_object_keys(result) k where label = 'legacy_adapter'),
-  array['ended_at','lifecycle_status','location_context','session_id','started_at','status']::text[], 'legacy adapter keeps exactly six response fields');
-select is((select metadata->>'location_classification' from public.session_events where idempotency_key = 'contract-adapter-out-001'),
-  'location_unverified', 'legacy checkout does not claim verified GPS');
-select is((select reason_code from public.session_events where idempotency_key = 'contract-adapter-out-001'),
-  'legacy_location_evidence', 'legacy limitation has a structured reason');
-select is(public.check_out((select (result->>'session_id')::uuid from contract_results where label = 'legacy_active'),
-  'contract-adapter-out-001', (select (payload->>'action_at')::timestamptz from contract_base))->>'status',
-  'idempotent_replay', 'adapter checkout uses and replays the original v1 hash');
+select public.check_out((select (result->>'session_id')::uuid from contract_results where label='legacy_active'),
+  'contract-before-cutover-out', (select (payload->>'action_at')::timestamptz from contract_base));
+reset role;
+do $$ begin execute (select definition from contract_definitions where label='gate'); end $$;
+-- Actual private state update, rollback-only; the trigger acquires the fence.
+update private.attendance_deployment set write_contract=2 where singleton;
+set local role authenticated;
+select throws_ok($$select public.check_in('factory', null,
+  (select (payload->>'action_at')::timestamptz from contract_base),'contract-legacy-in-001')$$,
+  'P0001','attendance_client_update_required','accepted legacy check-in is retained but its endpoint is retired');
+select throws_ok($$select public.check_out(
+  (select (result->>'session_id')::uuid from contract_results where label='legacy_closed_in'),
+  'contract-legacy-out-001',(select (payload->>'action_at')::timestamptz from contract_base))$$,
+  'P0001','attendance_client_update_required','legacy checkout replay is not a retirement bypass');
+select throws_ok($$select public.check_in('factory',null,null,'contract-new-legacy-001')$$,
+  'P0001','attendance_client_update_required','new legacy factory claim is retired');
+select throws_ok($$select public.check_in('external_worksite',null,null,'contract-new-legacy-002',0,0,1,'gps')$$,
+  'P0001','attendance_client_update_required','new legacy external claim is retired');
+select throws_ok($$select public.check_in('factory','changed',
+  (select (payload->>'action_at')::timestamptz from contract_base),'contract-legacy-in-001')$$,
+  'P0001','attendance_client_update_required','changed legacy intent also cannot bypass retirement');
+select throws_ok($$select private.check_in_legacy_impl('factory',null,null,'contract-bypass-001')$$,
+  '42501',null::text,'original implementation remains private');
+select throws_ok($$select public.check_out(
+  (select (result->>'session_id')::uuid from contract_results where label='legacy_active'),
+  'contract-adapter-out-001',null)$$,'P0001','attendance_client_update_required',
+  'legacy checkout cannot create a new closure at gate 2');
+select is((select count(*)::int from public.work_sessions),2,'retired attempts create no sessions');
+select is((select count(*)::int from public.location_observations),0,'retired attempts create no evidence');
+select is((select count(*)::int from public.session_events where idempotency_key='contract-adapter-out-001'),
+  0,'retired checkout creates no event');
+select is(public.attendance_capability()->>'v2_available','true','private gate 2 advertises v2 availability');
 
 -- Configuration absence permits attendance and never implies factory.
 insert into contract_results values ('no_factory', pg_temp.contract_in('contract-no-factory-001'));
@@ -472,6 +482,7 @@ select throws_ok($$select public.check_in_v2('contract-anonymous-in')$$, '42501'
 reset role;
 
 do $$ begin execute (select definition from contract_definitions where label = 'gate'); end $$;
+update private.attendance_deployment set write_contract=1 where singleton;
 select is(private.attendance_write_contract(), 1, 'cutover test restores legacy mode before rollback');
 select * from finish();
 rollback;

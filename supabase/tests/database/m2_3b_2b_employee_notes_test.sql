@@ -2,6 +2,12 @@ begin;
 create extension if not exists pgtap with schema extensions;
 select no_plan();
 
+-- Request metadata is separate from the frozen v2 payload (activation contract).
+do $$ begin
+  perform set_config('request.headers',jsonb_build_object('x-chantipoint-attendance-epoch',
+    (select deployment_epoch::text from private.attendance_deployment where singleton))::text,true);
+end $$;
+
 -- Fictional identities and factory configuration exist only in this transaction.
 insert into auth.users (id, aud, role, email, encrypted_password, email_confirmed_at)
 select ('91000000-0000-0000-0000-' || lpad(n::text,12,'0'))::uuid,
@@ -165,18 +171,24 @@ select * from pg_temp.test_closed_notes();
 
 -- Rollback-only v2 activation and fictional configuration.
 select pg_advisory_xact_lock(174811,2);
-create or replace function private.attendance_write_contract() returns integer language sql volatile set search_path='' as $$ select 2 $$;
+update private.attendance_deployment set write_contract=2 where singleton;
 update public.companies set factory_latitude=0,factory_longitude=0,factory_radius_meters=100
   where id='92000000-0000-0000-0000-000000000001';
 set local role authenticated;
 insert into note_results values ('preserve',pg_temp.note_start('notes-preserve-in-001'));
-select public.update_employee_note(pg_temp.note_id('preserve'),'Keep this note');
+reset role;
+-- Privileged fixture setup only; standalone note writers are retired at gate 2.
+update public.work_sessions set employee_note='Keep this note' where id=pg_temp.note_id('preserve');
+set local role authenticated;
 insert into note_results values ('preserve_out',public.check_out_v2(pg_temp.note_id('preserve'),'notes-preserve-out-001'));
 select is((select employee_note from public.work_sessions where id=pg_temp.note_id('preserve')),'Keep this note','omitted note arguments preserve current note');
 select is(public.check_out_v2(pg_temp.note_id('preserve'),'notes-preserve-out-001',p_replay_only=>true,p_note_action=>'preserve')->>'status',
   'idempotent_replay','explicit preserve and omitted preserve have the same command hash');
 insert into note_results values ('replace',pg_temp.note_start('notes-replace-in-001'));
-select public.update_employee_note(pg_temp.note_id('replace'),'Draft not retained');
+reset role;
+-- Privileged fixture setup only; standalone note writers are retired at gate 2.
+update public.work_sessions set employee_note='Draft not retained' where id=pg_temp.note_id('replace');
+set local role authenticated;
 insert into note_results values ('replace_out',pg_temp.note_finish(pg_temp.note_id('replace'),'notes-replace-out-001','replace','Final business note 🚧'));
 select is((select employee_note from public.work_sessions where id=pg_temp.note_id('replace')),'Final business note 🚧','final replacement saved');
 select is((select lifecycle_status from public.work_sessions where id=pg_temp.note_id('replace')),'closed_manual','replacement and closure accepted together');
@@ -206,7 +218,7 @@ select throws_ok($$select pg_temp.note_finish(pg_temp.note_id('replace'),'notes-
 select throws_ok($$select pg_temp.note_finish(pg_temp.note_id('replace'),'notes-replace-out-001','preserve',null,true)$$,
   '23505','idempotency_key_conflict','omitting original replacement intent conflicts');
 select throws_ok($$select public.update_employee_note(pg_temp.note_id('replace'),'late edit')$$,
-  'P0001','session_not_active','final note cannot be edited after v2 checkout');
+  'P0001','standalone_notes_not_enabled','retired endpoint cannot edit a closed final note');
 select ok(not exists(select 1 from public.session_events where work_session_id=pg_temp.note_id('replace')
   and (notes is not null or metadata::text like '%business note%' or metadata::text like '%Draft not retained%')),
   'neither final nor prior note copied into events');
@@ -214,7 +226,10 @@ select ok(not exists(select 1 from public.location_observations where work_sessi
   and (raw_metadata::text like '%business note%' or raw_metadata::text like '%Draft not retained%')),
   'note text not copied into location diagnostics');
 insert into note_results values ('clear',pg_temp.note_start('notes-clear-in-001'));
-select public.update_employee_note(pg_temp.note_id('clear'),'Clear at checkout');
+reset role;
+-- Privileged fixture setup only; standalone note writers are retired at gate 2.
+update public.work_sessions set employee_note='Clear at checkout' where id=pg_temp.note_id('clear');
+set local role authenticated;
 select is(pg_temp.note_finish(pg_temp.note_id('clear'),'notes-clear-out-001','clear')->>'status','closed','final clear and checkout accepted');
 select is((select employee_note from public.work_sessions where id=pg_temp.note_id('clear')),null::text,'final clear stores NULL');
 select is(pg_temp.note_finish(pg_temp.note_id('clear'),'notes-clear-out-001','clear',null,true)->>'status','idempotent_replay','clear replay succeeds without another mutation');
@@ -222,7 +237,10 @@ select throws_ok($$select pg_temp.note_finish(pg_temp.note_id('clear'),'notes-cl
   '23505','idempotency_key_conflict','clear differs from empty-string replacement');
 
 insert into note_results values ('invalid',pg_temp.note_start('notes-invalid-in-001'));
-select public.update_employee_note(pg_temp.note_id('invalid'),'Unchanged draft');
+reset role;
+-- Privileged fixture setup only; standalone note writers are retired at gate 2.
+update public.work_sessions set employee_note='Unchanged draft' where id=pg_temp.note_id('invalid');
+set local role authenticated;
 select throws_ok($$select pg_temp.note_finish(pg_temp.note_id('invalid'),'notes-invalid-out-001','replace',null)$$,
   '22023','invalid_employee_note_operation','replace requires supplied text');
 select throws_ok($$select pg_temp.note_finish(pg_temp.note_id('invalid'),'notes-invalid-out-001','preserve','text')$$,
@@ -244,7 +262,10 @@ select is(pg_temp.note_finish(pg_temp.note_id('invalid'),'notes-invalid-out-001'
 select is(char_length((select employee_note from public.work_sessions where id=pg_temp.note_id('invalid'))),1000,'final Unicode note retained in full');
 
 insert into note_results values ('atomic',pg_temp.note_start('notes-atomic-in-001'));
-select public.update_employee_note(pg_temp.note_id('atomic'),'Atomic draft');
+reset role;
+-- Privileged fixture setup only; standalone note writers are retired at gate 2.
+update public.work_sessions set employee_note='Atomic draft' where id=pg_temp.note_id('atomic');
+set local role authenticated;
 reset role;
 create function pg_temp.reject_final_note() returns trigger language plpgsql as $$
 begin
@@ -278,6 +299,7 @@ reset role;
 select is((select count(*)::int from public.admin_audit_events),0,'no note-edit audit records accumulated');
 select is((select count(*)::int from public.session_events where event_type not in ('check_in','manual_checkout')),0,'no note-edit or correction events accumulated');
 do $$ begin execute (select definition from note_gate); end $$;
+update private.attendance_deployment set write_contract=1 where singleton;
 select is(private.attendance_write_contract(),1,'suite restores legacy gate before rollback');
 select * from finish();
 rollback;

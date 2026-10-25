@@ -1,6 +1,18 @@
 # Attendance Backend Contract — M2.3b.2a and M2.3b.2b
 
-Attendance is implemented in `20261017000100_attendance_v2_contract.sql`; `20261017000200_employee_session_notes.sql` adds overwrite-only notes and finalizes the v2 checkout signature/hash. All four migrations are applied and tested locally only. Hosted `chantipoint-dev` is unchanged. The deployment gate remains **legacy mode (1)**; new v2 writes require a separately approved cutover. Flutter remains on its current GPS-free factory workflow.
+## Current local activation boundary
+
+The four attendance schema migrations are now deployed to development, with gate
+1 and normal History verified. The newer
+[activation contract](attendance-activation-contract.md) is **local only**:
+`20261025000100` preserves gate-1 behavior, adds server-owned epoch/capability and
+the `x-chantipoint-attendance-epoch` requirement for every v2 call, and makes both
+legacy attendance and both standalone note endpoints reject all calls at gate 2.
+This supersedes historical gate-2 legacy-checkout/note availability described in
+the implementation records below. RPC arguments, hashes and receipt shapes are
+unchanged; no client wiring, Save activation or hosted control deployment occurred.
+
+The following sections retain the earlier implementation/validation records. Their local-only deployment and old gate-2 writer statements are historical; use the current activation boundary above for present status.
 
 ## Exact Public Signatures
 
