@@ -10,8 +10,10 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'support/fake_attendance.dart';
 import 'support/test_users.dart';
+import 'support/legacy_writer_native_fixture.dart';
 
 void main() {
+  legacyWriterNativeFixture();
   late _Backend backend;
   late SupabaseClient client;
   late SupabaseAttendanceRepository repository;

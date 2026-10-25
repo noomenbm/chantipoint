@@ -9,8 +9,10 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fake_attendance.dart';
 import 'support/test_users.dart';
+import 'support/legacy_writer_native_fixture.dart';
 
 void main() {
+  legacyWriterNativeFixture();
   late Directory directory;
   test(
     'new controller and file store recover a committed command after restart',

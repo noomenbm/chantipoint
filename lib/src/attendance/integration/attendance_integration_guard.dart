@@ -6,7 +6,7 @@ import '../notes/session_note_ports.dart';
 /// A future issuer must establish deployment capability/gate, trusted binding,
 /// durable ownership and old-writer fencing held THROUGH operation settlement.
 /// File absence, matching UUIDs, a build flag or an RPC miss are not approval.
-/// No production issuer is supplied by this slice.
+/// Development issuance additionally requires signed native enrollment.
 abstract interface class AttendanceCutoverAuthority {
   bool isApproved(AttendanceOperationIdentity identity);
 }
@@ -37,6 +37,7 @@ final class AttendanceIntegrationGuard {
     required this.notes,
     required this.enrichedSessions,
     this.requireCapability,
+    this.verifyDevice,
   });
   final String? configurationMessage;
   final AttendanceCutoverAuthority cutover;
@@ -44,6 +45,9 @@ final class AttendanceIntegrationGuard {
   final SessionNoteStorage notes;
   final bool enrichedSessions;
   final Future<void> Function(AttendanceOperationIdentity)? requireCapability;
+  // Combined native/capability/native preflight, bootstrapped on refresh before
+  // synchronous isApproved. No enrollment, cleanup or absence-based approval.
+  final Future<void> Function(AttendanceOperationIdentity)? verifyDevice;
   static const notActivated =
       'Le nouveau pointage n’est pas encore activé. '
       'Les entrées, sorties et reprises sont indisponibles. '
@@ -88,6 +92,7 @@ final class AttendanceIntegrationGuard {
           'Les données restent conservées sur cet appareil.',
         );
       }
+      await verifyDevice?.call(identity);
     } on AttendanceIntegrationFailure {
       rethrow;
     } catch (_) {
@@ -101,7 +106,9 @@ final class AttendanceIntegrationGuard {
   Future<void> beforeAction(AttendanceOperationIdentity identity) async {
     requireApproval(identity);
     await beforeRead(identity);
-    await requireCapability?.call(identity);
+    // Combined development verification already checks capability and checks
+    // native evidence last. Avoid another HTTP await after that final check.
+    if (verifyDevice == null) await requireCapability?.call(identity);
     requireApproval(identity);
   }
 }

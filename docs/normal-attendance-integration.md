@@ -1,5 +1,19 @@
 # Normal-app attendance integration
 
+## Signed development authority follow-up
+
+The application-lifetime normal composition now supports a debug-only signed
+development enrollment verifier. Default/release denial remains; independently
+trusted epoch/public-key configuration cannot authorize attendance alone. Native
+approval, original full binding/current auth generation and a fresh matching
+gate-2 capability must pass before enriched reads/actions. Refresh bootstraps
+verification; capture and pre-POST repeat it. Standalone Save remains disabled.
+Old adapters check durable local retirement without deleting retained work.
+See [development device authority](development-device-authority.md) for exact
+configuration, operator approval, native recovery, admission/drain limits and
+remaining separately authorized steps. Historical integration evidence below
+predates these hooks. No real device was enrolled or hosted write/gate performed.
+
 The subsequent [development cutover assessment](development-attendance-cutover.md)
 verified the hosted baseline and records the remaining code/database work and
 proposed staged sequence. This integration's default-deny boundary is unchanged;
@@ -49,7 +63,7 @@ and History functional but blocks pointage **before local slot access, GPS or
 attendance HTTP**. No value is supplied in source. Supplying this identifier does
 not enable writes or certify server capability.
 
-Normal composition uses `UnapprovedAttendanceCutover`; there is no production
+Normal composition defaults to `UnapprovedAttendanceCutover`; there is no production
 approval issuer and no activation build flag. Every new submit, replay and receipt
 consumption is disabled by default. A future issuer must establish compatible
 server migrations/contracts and gate, trusted environment, approved migration
@@ -61,7 +75,8 @@ still allowed to settle after invalidation/approval withdrawal.
 
 The [activation-contract client boundary](attendance-activation-contract.md#client-capability-and-epoch-boundary)
 adds a fresh authenticated capability GET before capture and before attendance
-POST when an explicit test cutover authority approves. Strict parsing, matching
+POST when an explicit test authority or the signed DEBUG development boundary
+approves. Strict parsing, matching
 independently trusted epoch and gate-2 availability are additional prerequisites,
 never a substitute for that approval. Every v2 initial/replay POST carries the
 original binding's epoch in its header, without modifying frozen RPC data.
@@ -79,13 +94,13 @@ source binding, deletion, reset or note recovery is performed. The source
 inspector and native storage retain their existing reviewed recovery policies.
 Missing namespace does not guess which binding to inspect.
 
-The default active/canonical projection omits `employee_note` and `review_status`;
-it does not assume local-only migrations exist on hosted development. Missing
+The unapproved default active/canonical projection omits `employee_note` and
+`review_status`; enriched reads require the verified development boundary. Missing
 fields appear as unavailable, not invented absence. The scoped reader still
 checks profile/employee authorization and full owner binding. Schema, permission,
 network and malformed responses remain errors, never an empty active session.
-The v2 enriched projection plus explicit cutover authority is used only by
-fictional tests; changing the projection alone cannot enable writes.
+The v2 enriched projection is selected for the signed DEBUG boundary or explicit
+fictional test ports; changing the projection alone cannot enable writes.
 
 ## Standalone notes remain disabled
 

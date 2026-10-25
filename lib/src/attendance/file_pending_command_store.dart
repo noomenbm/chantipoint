@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'attendance_models.dart';
 import 'attendance_repository.dart';
+import 'integration/legacy_writer_fence.dart';
 
 /// One flushed intent per employee, persisted before any RPC is sent.
 /// Temporary files are never treated as sent commands; only renamed records are.
@@ -49,6 +50,7 @@ class FilePendingCommandStore implements PendingCommandStore {
   Future<void> save(String owner, AttendanceCommand command) =>
       _serial(() async {
         try {
+          await requireLegacyWriterAllowed();
           final file = await _file(owner);
           final existing = await _read(file, owner);
           if (existing != null) {
@@ -72,6 +74,7 @@ class FilePendingCommandStore implements PendingCommandStore {
   @override
   Future<void> clear(String owner, String expectedKey) => _serial(() async {
     try {
+      await requireLegacyWriterAllowed();
       final file = await _file(owner);
       final current = await _read(file, owner);
       if (current != null && current.key == expectedKey) await file.delete();

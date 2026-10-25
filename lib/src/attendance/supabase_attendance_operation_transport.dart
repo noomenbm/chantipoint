@@ -9,6 +9,7 @@ import 'attendance_operation_transport.dart';
 import 'attendance_request_authority.dart';
 import 'journal/journal_command.dart';
 import 'journal/journal_json.dart';
+import 'integration/legacy_writer_fence.dart';
 import 'notes/session_note_ports.dart';
 import 'notes/session_note_record.dart';
 
@@ -138,6 +139,8 @@ final class SupabaseAttendanceOperationTransport
       );
     }
     final scope = await _acquire(identity);
+    authorizeWrite?.call(identity, '/rest/v1/rpc/save_employee_note');
+    await requireLegacyWriterAllowed();
     final text = await _send(
       identity,
       scope,

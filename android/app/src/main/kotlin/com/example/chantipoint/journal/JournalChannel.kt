@@ -40,6 +40,8 @@ class JournalChannel internal constructor(context: Context, messenger: BinaryMes
             result.notImplemented(); return
         }
         if (call.method !in setOf("read", "compareAndSwap", "inspectRecoveryV1", "normalizeRecoveryV1",
+                "readDevelopmentEnrollmentV1", "prepareDevelopmentEnrollmentV1", "installDevelopmentEnrollmentV1",
+                "inspectDevelopmentInventoryV1", "requireOldWriterAllowedV1",
                 "inspectLegacySourceV1", "verifyMigrationTargetV1", "cleanupLegacySourceV1",
                 "requireMigrationValidationV1", "verifyCompletedMigrationV1", "verifyRecordV1")) {
             result.notImplemented(); return
@@ -47,6 +49,37 @@ class JournalChannel internal constructor(context: Context, messenger: BinaryMes
         try { worker.execute {
             try {
                 val args = call.arguments as? Map<*, *> ?: problem("journal_corrupt")
+                if (call.method in setOf("readDevelopmentEnrollmentV1", "prepareDevelopmentEnrollmentV1",
+                        "installDevelopmentEnrollmentV1", "inspectDevelopmentInventoryV1", "requireOldWriterAllowedV1")) {
+                    exactFields(args, when (call.method) {
+                        "readDevelopmentEnrollmentV1" -> setOf("api_version", "binding", "operator_public_key")
+                        "prepareDevelopmentEnrollmentV1" -> setOf("api_version", "binding", "approval_ref", "maintenance_ref")
+                        "installDevelopmentEnrollmentV1" -> setOf("api_version", "binding", "payload", "signature", "operator_public_key", "empty_record")
+                        else -> setOf("api_version")
+                    })
+                    if (channelInteger(args["api_version"]) != 1L) problem("journal_unsupported_format")
+                    val enrollment = DevelopmentEnrollment(applicationContext)
+                    val response = when (call.method) {
+                        "inspectDevelopmentInventoryV1" -> enrollment.inspect()
+                        "requireOldWriterAllowedV1" -> { enrollment.requireOldWriterAllowed(); mapOf("status" to "allowed") }
+                        else -> {
+                            val binding = SlotBinding.parse(args["binding"])
+                            when (call.method) {
+                                "readDevelopmentEnrollmentV1" -> enrollment.verify(binding, text(args["operator_public_key"], 512))
+                                "prepareDevelopmentEnrollmentV1" -> mapOf("payload" to enrollment.prepare(binding,
+                                    text(args["approval_ref"], 128), text(args["maintenance_ref"], 128)))
+                                else -> {
+                                    enrollment.install(binding, args["payload"] as? ByteArray ?: problem("journal_corrupt"),
+                                        args["signature"] as? ByteArray ?: problem("journal_corrupt"),
+                                        text(args["operator_public_key"], 512), args["empty_record"] as? ByteArray ?: problem("journal_corrupt"))
+                                    mapOf("status" to "installed")
+                                }
+                            }
+                        }
+                    }
+                    main.post { if (active.get()) result.success(response) }
+                    return@execute
+                }
                 if (call.method == "requireMigrationValidationV1") {
                     exactFields(args, setOf("api_version"))
                     if (channelInteger(args["api_version"]) != 1L) problem("journal_unsupported_format")

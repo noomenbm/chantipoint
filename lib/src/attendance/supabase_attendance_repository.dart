@@ -8,6 +8,7 @@ import 'attendance_models.dart';
 import 'attendance_receipt.dart';
 import 'attendance_repository.dart';
 import 'attendance_v2_requests.dart';
+import 'integration/legacy_writer_fence.dart';
 
 class SupabaseAttendanceRepository
     implements AttendanceRepository, AttendanceV2Repository {
@@ -142,6 +143,8 @@ class SupabaseAttendanceRepository
 
   @override
   Future<WorkSession> submit(AttendanceCommand command) => _request(() async {
+    await requireLegacyWriterAllowed();
+    _checkIdentity();
     final result = await _client.rpc(command.rpc, params: command.payload);
     final row = Map<String, dynamic>.from(result as Map);
     if (!const [
@@ -203,6 +206,8 @@ class SupabaseAttendanceRepository
     String? expectedSessionId,
   }) => _request(
     () async {
+      await requireLegacyWriterAllowed();
+      _checkIdentity();
       final result = await _client.rpc(rpc, params: parameters());
       final receipt = AttendanceReceipt.fromJson(
         Map<String, dynamic>.from(result as Map),
@@ -238,6 +243,8 @@ class SupabaseAttendanceRepository
     required String? employeeNote,
   }) => _request(
     () async {
+      await requireLegacyWriterAllowed();
+      _checkIdentity();
       final result = await _client.rpc(
         'update_employee_note',
         params: {

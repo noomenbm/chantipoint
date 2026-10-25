@@ -15,8 +15,10 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'support/attendance_v2_fixtures.dart';
 import 'support/test_users.dart';
+import 'support/legacy_writer_native_fixture.dart';
 
 void main() {
+  legacyWriterNativeFixture();
   late SupabaseClient client;
   late AttendanceV2Repository repository;
   late List<http.Request> requests;

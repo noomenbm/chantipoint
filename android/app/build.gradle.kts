@@ -7,7 +7,8 @@ plugins {
 // Opt-in fictional runtime harnesses; no normal application activation.
 val journalValidation = providers.gradleProperty("journalValidation").orNull == "true"
 val locationValidation = providers.gradleProperty("locationValidation").orNull == "true"
-check(!(journalValidation && locationValidation))
+val enrollmentValidation = providers.gradleProperty("enrollmentValidation").orNull == "true"
+check(listOf(journalValidation, locationValidation, enrollmentValidation).count { it } <= 1)
 
 android {
     namespace = "com.example.chantipoint"
@@ -22,6 +23,10 @@ android {
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.example.chantipoint"
+        if (enrollmentValidation) {
+            applicationIdSuffix = ".enrollmentvalidation"
+            testInstrumentationRunner = "com.example.chantipoint.journal.DevelopmentEnrollmentInstrumentation"
+        }
         if (journalValidation) {
             applicationIdSuffix = ".journalvalidation"
             testInstrumentationRunner = "com.example.chantipoint.journal.JournalRuntimeInstrumentation"

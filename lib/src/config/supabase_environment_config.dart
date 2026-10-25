@@ -5,6 +5,7 @@ class SupabaseEnvironmentConfig {
     required this.missingValues,
     required this.keySource,
     this.attendanceEnvironmentId = '',
+    this.developmentAttendanceOperatorPublicKey = '',
   });
 
   factory SupabaseEnvironmentConfig.fromEnvironment() {
@@ -29,6 +30,9 @@ class SupabaseEnvironmentConfig {
           ? 'SUPABASE_PUBLISHABLE_KEY'
           : 'SUPABASE_ANON_KEY',
       attendanceEnvironmentId: attendanceEnvironmentId,
+      developmentAttendanceOperatorPublicKey: const String.fromEnvironment(
+        'DEVELOPMENT_ATTENDANCE_OPERATOR_PUBLIC_KEY',
+      ),
     );
   }
 
@@ -42,6 +46,9 @@ class SupabaseEnvironmentConfig {
   // Historical journal bindings are not rewritten to conform to this contract.
   // Missing does not disable login/History and NEVER creates an invented binding.
   final String attendanceEnvironmentId;
+  // Independent public trust anchor; never obtained from capability or journals.
+  // Only DEBUG composition may select its verifier; configuration grants nothing.
+  final String developmentAttendanceOperatorPublicKey;
 
   bool get isConfigured => missingValues.isEmpty;
 }

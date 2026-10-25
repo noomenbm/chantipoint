@@ -1,6 +1,74 @@
 # ChantiPoint Development Status
 
-Current slice: **activation-contract verification and gate-1 deployment
+Current follow-up: **normal development-authority integration**, based on
+`15c4ca0613ef13da6fad006302cc6530c939c07c`, preserving the prior ten uncommitted
+review files. The operator explicitly approved local routing/preflight and
+old-writer hooks directly in chat; those previously blocked edits are now applied.
+
+Normal composition selects the signed verifier only in DEBUG with independent
+canonical epoch/public trust-anchor configuration. Refresh bootstraps verification;
+native → fresh gate-2 capability → native checks run before enriched reads/GPS,
+after capture and before POST/replay. Missing approval, gate 1, unavailable or
+rotated capability, authorization loss and retained old/note evidence deny.
+Original frozen commands, receipts and recovery/consumption sequencing remain;
+late submitted receipts still persist without stale refresh. The enrolled empty
+slot requires explicit existing C3 verification before a fresh action.
+
+Retained legacy file save/clear, old attendance dispatch and both note transport
+paths check native retirement; reads/evidence remain available. These checks do
+not cancel previously admitted work or fence older APKs: supervised maintenance/
+drain remains separate. Preparation now checks eligibility/references before
+creating a marker, so failed preflight does not newly strand old work. Deliberate
+or pre-existing markers are never deleted, and a dangling marker still denies.
+
+**257 focused** and **1,744 full serial Flutter tests passed**; analysis passed.
+Isolated Android app/test APK builds passed offline with normal `lib/main.dart`
+and a separate `.enrollmentvalidation` package (initial 4m 53s; fixture rebuild
+4m 19s). Pixel_9 Android 17/API 37, 16 KiB pages: **21 fresh checks passed**, then
+**4 restart checks passed twice**, with the same retained keys/data. The earlier
+unexplained restart crash was not reproduced; its root cause remains unknown.
+An initial 9-pass/12-fail fresh run exposed test-only cleanup skipping a dangling
+symlink. Confirmed the fixture condition, fixed only its isolated cleanup, rebuilt
+and reran all native checks successfully; production denial was not weakened.
+No actual device enrollment, hosted requests/writes, gate or schema changes,
+journal cleanup/migration/rebinding or Git mutations occurred. Standalone Save
+and default/release attendance remain disabled. The current emulator's historical
+provenance is not certified. See [development authority](development-device-authority.md)
+for separately approved provisioning, certification, maintenance and gate-2 steps.
+
+Previous slice: **bounded development installation authority**, based on
+`15c4ca0613ef13da6fad006302cc6530c939c07c`. The verified hosted baseline is now six
+migrations, gate 1, 52 strict postchecks and a successful authenticated capability
+GET/normal-app smoke. The older preparation entries below are historical.
+
+A development-only signed installation checkpoint, Keystore installation identity,
+read-only namespace inventory, explicit operator entry point, native retirement
+check and isolated auth-generation/capability authority have been added. See
+[development device authority](development-device-authority.md) for the exact
+trust, interruption, retry and operator boundaries. No actual device was enrolled,
+no hosted request/write or gate change occurred, and no legacy migration ran.
+
+Normal composition and retained old Dart writers are still **unchanged**:
+automatic approval review rejected their integration changes pending explicit
+review of the routing/retirement effects. The new native retirement check is not
+yet called by those adapters. `UnapprovedAttendanceCutover` remains the default;
+normal attendance and standalone Save stay disabled. This slice must not be
+represented as completed employee-v2 enablement. Validation is recorded below
+and in the external review report.
+
+Validation: **206 focused tests**, **1,702 full serial Flutter tests**, and Flutter
+analysis passed. New isolated native app/test APKs built offline in **4m 47s**.
+Pixel_9 Android 17/API 37 (16 KiB pages) passed **18 fresh + 4 restart** native
+checks. The first restart invocation returned `Process crashed` without test
+results or a matching Java crash-buffer exception; retry, without reinstall/reset
+or key/data clearing, passed all four checks. Its cause is unestablished. The
+optional isolated read-only inventory UI check met a System UI ANR and is not
+native-storage failure evidence. After selecting **Wait**, the inventory screen
+displayed its count/boolean result successfully, exercising the new MethodChannel.
+No old-writer dispatch hook, production enrollment, real gate-2 action, power-loss,
+older Android/OEM, backup/restore or server-maintenance guarantee is claimed.
+
+Previous slice: **activation-contract verification and gate-1 deployment
 preparation**, baseline `a679e02`, branch `feature/attendance-live-integration`.
 The live linked project was verified as `chantipoint-dev`: exactly five migrations,
 constant gate 1, activation table absent, and **19/19 five-state preflight** checks

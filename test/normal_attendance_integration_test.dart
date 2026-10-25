@@ -9,6 +9,7 @@ import 'package:chantipoint/src/attendance/attendance_operation_transport.dart';
 import 'package:chantipoint/src/attendance/attendance_v2_requests.dart';
 import 'package:chantipoint/src/attendance/employee_attendance_workflow.dart';
 import 'package:chantipoint/src/attendance/integration/attendance_integration_guard.dart';
+import 'package:chantipoint/src/attendance/integration/development_attendance_authority.dart';
 import 'package:chantipoint/src/attendance/integration/normal_attendance_composition.dart';
 import 'package:chantipoint/src/attendance/journal/journal_command.dart';
 import 'package:chantipoint/src/attendance/journal/journal_json.dart';
@@ -134,6 +135,9 @@ class Harness {
     bool namespace = true,
     bool approved = true,
     AttendanceSessionProjection projection = AttendanceSessionProjection.v2,
+    bool development = false,
+    String publicKey = '',
+    DevelopmentEnrollmentEvidence? enrollment,
   }) async {
     this.projection = projection;
     approval.approved = approved;
@@ -148,6 +152,7 @@ class Harness {
         attendanceEnvironmentId: namespace
             ? journalBinding().environmentId
             : '',
+        developmentAttendanceOperatorPublicKey: publicKey,
       ),
       client: client,
       storage: operations.storage,
@@ -159,8 +164,9 @@ class Harness {
         return source;
       },
       locationFactory: () => location,
-      cutover: approval,
-      projection: projection,
+      cutover: development ? null : approval,
+      projection: development ? null : projection,
+      developmentEnrollment: enrollment,
     );
     await auth.login();
     workflow = composition.createWorkflow(auth.controller.state.user!);

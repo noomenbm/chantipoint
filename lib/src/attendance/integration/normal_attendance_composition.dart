@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:http/http.dart' as http;
+import 'package:flutter/foundation.dart';
 
 import '../../auth/auth_controller.dart';
 import '../../auth/authorized_user.dart';
@@ -25,6 +26,7 @@ import '../notes/session_note_ports.dart';
 import '../scoped_attendance_active_session_reader.dart';
 import '../supabase_attendance_operation_transport.dart';
 import 'attendance_integration_guard.dart';
+import 'development_attendance_authority.dart';
 
 typedef EmployeeAttendanceWorkflowFactory = EmployeeAttendanceWorkflow Function(
   AuthorizedUser user,
@@ -43,8 +45,9 @@ final class NormalAttendanceComposition {
     SessionNoteStorage? notes,
     LegacyAttendanceInspection? inspectLegacy,
     ForegroundLocationAcquisition Function()? locationFactory,
-    AttendanceCutoverAuthority cutover = const UnapprovedAttendanceCutover(),
-    AttendanceSessionProjection projection = AttendanceSessionProjection.legacy,
+    AttendanceCutoverAuthority? cutover,
+    AttendanceSessionProjection? projection,
+    DevelopmentEnrollmentEvidence? developmentEnrollment,
   }) : client = client ?? http.Client(),
        _locationFactory =
            locationFactory ??
@@ -72,23 +75,50 @@ final class NormalAttendanceComposition {
           'Le pointage attend une configuration de déploiement validée. '
           'Aucune entrée, sortie ou reprise ne sera envoyée. L’historique reste accessible.';
     }
+    // Explicitly approved local development integration. Selecting a verifier
+    // grants NOTHING: signed native approval, current auth and gate 2 must pass.
+    final configuredDevelopment =
+        kDebugMode &&
+        !kIsWeb &&
+        owner != null &&
+        isDevelopmentOperatorPublicKey(
+          config.developmentAttendanceOperatorPublicKey,
+        );
+    final development = cutover == null && configuredDevelopment
+        ? DevelopmentAttendanceAuthority(
+            enrollment:
+                developmentEnrollment ??
+                AndroidDevelopmentEnrollment(
+                  operatorPublicKey:
+                      config.developmentAttendanceOperatorPublicKey,
+                ),
+            isCurrent: (identity) => owner?.isCurrent(identity) ?? false,
+            requireCapability: (identity) =>
+                transport.requireV2Capability(identity),
+          )
+        : null;
+    final sessionProjection =
+        projection ??
+        (development != null
+            ? AttendanceSessionProjection.v2
+            : AttendanceSessionProjection.legacy);
     guard = AttendanceIntegrationGuard(
       configurationMessage: configurationMessage,
-      cutover: cutover,
+      cutover: cutover ?? development ?? const UnapprovedAttendanceCutover(),
+      verifyDevice: development?.verify,
       inspectLegacy:
           inspectLegacy ??
           (binding) async =>
               (await AndroidLegacyMigration().inspect(binding)).source,
       notes: notes ?? const AndroidSessionNoteStorage(),
-      enrichedSessions: projection == AttendanceSessionProjection.v2,
+      enrichedSessions: sessionProjection == AttendanceSessionProjection.v2,
       requireCapability: (identity) => transport.requireV2Capability(identity),
     );
     transport = SupabaseAttendanceOperationTransport(
       authority: owner ?? const _UnavailableAuthority(),
       client: this.client,
-      projection: projection,
-      beforeAttendanceWrite: (identity) =>
-          transport.requireV2Capability(identity),
+      projection: sessionProjection,
+      beforeAttendanceWrite: guard.beforeAction,
       authorizeWrite: (identity, path) {
         if (path != '/rest/v1/rpc/check_in_v2' &&
             path != '/rest/v1/rpc/check_out_v2') {

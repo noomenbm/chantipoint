@@ -13,8 +13,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'support/employee_workflow_fixture.dart';
 import 'support/journal_fixtures.dart';
 import 'support/session_note_fixture.dart';
+import 'support/legacy_writer_native_fixture.dart';
 
 void main() {
+  legacyWriterNativeFixture();
   late SessionNoteFixture f;
   setUp(() => f = SessionNoteFixture());
   tearDown(() => f.close());
