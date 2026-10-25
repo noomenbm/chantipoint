@@ -19,9 +19,7 @@ class AuthenticatedHomeScreen extends StatefulWidget {
     this.attendanceControllerFactory,
     this.historyRepositoryFactory,
     this.employeeWorkflowFactory,
-  }) : assert(
-         attendanceControllerFactory == null || employeeWorkflowFactory == null,
-       );
+  });
   final AuthorizedUser user;
   final Future<void> Function() onSignOut;
   final AttendanceControllerFactory? attendanceControllerFactory;
@@ -55,6 +53,12 @@ class _AuthenticatedHomeScreenState extends State<AuthenticatedHomeScreen> {
   }
 
   void _createAttendance() {
+    // Enforce this in release too, before either factory can acquire ownership.
+    // A debug-only assertion does not fence an accidentally mixed composition.
+    if (widget.attendanceControllerFactory != null &&
+        widget.employeeWorkflowFactory != null) {
+      throw StateError('Conflicting attendance writers');
+    }
     _attendance = widget.user.roles.contains(AuthorizedRole.employee)
         ? widget.attendanceControllerFactory?.call(widget.user)
         : null;

@@ -4,7 +4,17 @@ This guide covers the deployed M2.1 baseline, M2.2/M2.3a client, and the locally
 
 ## Current State
 
-- Branch: `feature/manual-attendance`.
+- The four pending migrations are prepared for a separate **legacy-mode schema
+  deployment**: [review/checklist and actual local validation](development-schema-deployment.md).
+  Keep gate 1 and legacy RPC grants; no hosted deployment occurred. The later
+  v2 cutover controls are not prerequisites for this schema-only stage.
+- Latest read-only hosted verification (2026-10-24, branch
+  `feature/attendance-live-integration` at `86aeb71`) confirms `chantipoint-dev`
+  still has **only the initial migration**, no v2/private gate or note column.
+  The enriched v2 projection is not yet compatible. See the
+  [cutover assessment](development-attendance-cutover.md) for exact evidence,
+  pending-command safeguards, required legacy-writer retirement and proposed
+  deployment/test sequence. This verification did not activate or deploy anything.
 - The initial migration `20261013000100_initial_attendance_foundation.sql` is deployed to hosted `chantipoint-dev`; 70 local pgTAP tests passed.
 - Flutter authentication is complete for M2.2; 62 automated Flutter tests and static analysis passed.
 - The developer verified Android launch, hosted login, active employee profile/role recognition, logout, session restoration after task removal and Force stop, access removal on resume after profile disabling, and login after re-enabling the profile.
@@ -30,6 +40,17 @@ Additional migrations applied and validated locally; not deployed to hosted deve
 2. `supabase/migrations/20261016000100_attendance_location_foundations.sql`
 3. `supabase/migrations/20261017000100_attendance_v2_contract.sql`
 4. `supabase/migrations/20261017000200_employee_session_notes.sql` (all applied/tested locally; legacy gate remains 1).
+5. `supabase/migrations/20261021000100_settled_employee_note_operations.sql`
+   (also locally validated; hosted inspection confirms it is pending).
+
+For schema-only deployment with legacy retained, use the
+[dedicated checklist](development-schema-deployment.md); the four existing files
+need no rewrite or additional control migration for gate 1. Both note RPCs become
+authenticated-callable independently of the gate; the app Save button stays off.
+
+Do not combine this deployment with enabling gate 2. The cutover assessment requires
+a separately reviewed forward control migration, deployment identity, old/note
+writer fencing, device ownership and compatible recovery before activation.
 
 Keep the initial committed migration unchanged as the baseline. Future schema changes require new migrations, local validation, and explicit approval before hosted deployment.
 

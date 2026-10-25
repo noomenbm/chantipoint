@@ -1,8 +1,48 @@
 # ChantiPoint Development Status
 
-Current slice: **guarded normal-app attendance integration**, based on clean
+Current slice: **development schema deployment preparation, legacy retained**,
+branch `feature/attendance-live-integration`, HEAD `86aeb71`, preserving all seven
+previous assessment files. The linked project was verified again as
+`chantipoint-dev`; read-only checks still show only the initial migration and
+matching original legacy bodies. The four pending migrations need no rewrite or
+additional migration for deployment with gate 1/legacy grants retained. No hosted
+deployment, gate change, attendance/note RPC or device journal operation occurred.
+
+The existing local database already had all five migrations: none was reapplied.
+**6 pgTAP files / 790 assertions passed**, including 29 new legacy compatibility
+assertions also passed separately; **19/19** read-only postchecks passed locally.
+Final migration/gate/data state is unchanged, temporary pgTAP is absent, and the
+database stopped cleanly with its volume retained. No populated-baseline upgrade,
+concurrency harness, hosted post-upgrade API or device test was performed. See the
+[schema-only checklist](development-schema-deployment.md) for exact future
+commands, migration effects, note-RPC exposure, resources and stop conditions.
+The normal app remains guarded and standalone Save disabled. Flutter results
+below belong to the previous assessment, not a new run in this SQL/docs slice.
+
+Previous slice: **development attendance cutover assessment**, based on clean
+`86aeb7199e5af8f5baf5bea09c17de134f772de7`, branch
+`feature/attendance-live-integration`. Read-only Management API checks first
+verified the linked project is `chantipoint-dev`, then confirmed **only the
+initial migration** is deployed: no v2 RPCs/private gate or employee-note column.
+Existing baseline session shapes pass aggregate checks; the enriched v2 SELECT
+is currently incompatible. No device pending-command inventory was performed,
+and absent files or no active server session would not certify a clean cutover.
+
+See [Development attendance cutover assessment](development-attendance-cutover.md)
+for evidence, required changes/verifications, exact proposed maintenance/migration/
+enrollment/test sequence and decisions. Gate 2 alone leaves legacy checkout
+writable in the committed design; unkeyed note saves also require retirement.
+Local hardening replaces debug-only mixed-writer exclusion with an unconditional
+check before either factory runs, with two new regression tests including default
+authority denial. **38 focused tests and all 1,600 serial Flutter tests passed**;
+analysis passed. Read-only inspection SQL was executed successfully twice. No
+activation, hosted mutations, journal operations, Android build/emulator, Docker,
+account creation or Git management occurred. Lowest sampled C: during the full
+host suite was **21.90 GiB**. Changes remain unstaged/uncommitted for review.
+
+Previous slice: **guarded normal-app attendance integration**, based on clean
 `90432ec2c1b13500c4b7b695579a8ba254765209`, human-created branch
-`feature/attendance-live-integration`. Changes remain unstaged/uncommitted.
+`feature/attendance-live-integration`, committed by the developer as `86aeb71`.
 
 The normal employee home now composes the C5 workflow with application-lifetime
 auth ownership, pinned HTTP, scoped canonical reads, Android journal/verifier and

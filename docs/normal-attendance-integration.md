@@ -1,5 +1,10 @@
 # Normal-app attendance integration
 
+The subsequent [development cutover assessment](development-attendance-cutover.md)
+verified the hosted baseline and records the remaining code/database work and
+proposed staged sequence. This integration's default-deny boundary is unchanged;
+mixed legacy/v2 factories are now rejected in release builds too.
+
 Baseline: `90432ec`, branch `feature/attendance-live-integration`. This is a
 guarded composition for review, **not hosted v2 activation**. The developer
 explicitly approved replacing the legacy attendance panel while all attendance

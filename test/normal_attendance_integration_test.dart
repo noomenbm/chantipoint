@@ -20,6 +20,7 @@ import 'package:chantipoint/src/attendance/supabase_attendance_operation_transpo
 import 'package:chantipoint/src/config/supabase_environment_config.dart';
 import 'package:chantipoint/src/ui/employee_attendance_screen.dart';
 import 'package:chantipoint/src/ui/factory_attendance_screen.dart';
+import 'package:chantipoint/src/ui/authenticated_home_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -176,6 +177,96 @@ void main() {
   late Harness h;
   setUp(() => h = Harness());
   tearDown(() => h.close());
+
+  test('actual default cutover authority denies writes despite trusted identity, enriched schema and absent sources', () async {
+    await h.start();
+    final requests = <http.Request>[];
+    final client = MockClient((request) async {
+      requests.add(request);
+      return http.Response(
+        jsonEncode(activeSelection(sessions: [])),
+        200,
+        headers: {'content-type': 'application/json; charset=utf-8'},
+      );
+    });
+    final guarded = NormalAttendanceComposition(
+      auth: h.auth.controller,
+      repository: h.auth.repository,
+      config: SupabaseEnvironmentConfig(
+        url: 'https://fixture.invalid',
+        publishableKey: 'fictional-publishable-key',
+        missingValues: const [],
+        keySource: 'SUPABASE_PUBLISHABLE_KEY',
+        attendanceEnvironmentId: journalBinding().environmentId,
+      ),
+      client: client,
+      storage: h.operations.storage,
+      verifier: Verifier(),
+      notes: h.notes,
+      inspectLegacy: (_) async => LegacySourceSnapshot.absent(),
+      locationFactory: () => h.location,
+      projection: AttendanceSessionProjection.v2,
+      // Deliberately omit cutover: exercise the real constructor default.
+    );
+    addTearDown(guarded.close);
+    await turn();
+    final workflow = guarded.createWorkflow(h.auth.controller.state.user!);
+    await workflow.refresh();
+    expect(workflow.state.status, EmployeeAttendanceStatus.ready);
+    expect(workflow.canCheckIn, false);
+    await workflow.checkIn();
+    final context = guarded.owner!.issueContext();
+    try {
+      await expectLater(
+        guarded.transport.dispatch(
+          context.identity,
+          journalCommand(),
+          replayOnly: false,
+        ),
+        throwsA(isA<AttendanceIntegrationFailure>()),
+      );
+    } finally {
+      await context.release();
+    }
+    expect(requests.where((r) => r.method == 'POST'), isEmpty);
+    expect(h.operations.disk.writes, 0);
+    expect(h.location.calls, 0);
+  });
+
+  testWidgets(
+    'mixed legacy/v2 factories fail closed before either acquires ownership, without relying on assertions',
+    (tester) async {
+      await tester.runAsync(() => h.start(namespace: false));
+      var legacyCalls = 0, v2Calls = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AuthenticatedHomeScreen(
+            user: h.auth.controller.state.user!,
+            onSignOut: () async {},
+            attendanceControllerFactory: (_) {
+              legacyCalls++;
+              throw StateError('Unused fixture');
+            },
+            employeeWorkflowFactory: (_) {
+              v2Calls++;
+              throw StateError('Unused fixture');
+            },
+          ),
+        ),
+      );
+      expect(
+        tester.takeException(),
+        isA<StateError>().having(
+          (e) => e.message,
+          'safe failure',
+          'Conflicting attendance writers',
+        ),
+      );
+      expect(legacyCalls, 0);
+      expect(v2Calls, 0);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
 
   test('missing trusted deployment never guesses binding or touches storage/GPS/HTTP', () async {
     await h.start(namespace: false);
