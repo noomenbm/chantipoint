@@ -78,7 +78,9 @@ maintenance or activation operation is supplied/executed here.
 
 PostgREST behavior is documented in its [transaction settings](https://postgrest.org/en/stable/references/transactions.html)
 and [RPC reference](https://postgrest.org/en/stable/references/api/functions.html).
-Actual PostgREST header forwarding for this new contract was not runtime-tested.
+The original server/client slices did not runtime-test HTTP forwarding. The
+[gate-1 deployment follow-up](attendance-activation-deployment.md) now verifies it
+through actual local PostgREST 16.4; hosted forwarding remains unverified.
 
 ## Writer and replay policy
 
@@ -239,8 +241,11 @@ do not reset the retained database to rerun it.
 The previous **19 strict schema postchecks describe the deployed five-migration
 stage**. They intentionally cease matching once this forward migration changes
 function bodies/history/gate storage; do not treat those old fingerprints as the
-postcheck contract for six migrations. Updated operator postchecks and actual
-GET/header-forwarding API checks are prerequisites for a later approved deployment.
+postcheck contract for six migrations. The follow-up now supplies **52 strict
+six-state postchecks**, validated locally with drift probes and actual local HTTP.
+See the [ordered deployment/postcheck procedure](attendance-activation-deployment.md).
+These new checks have not been run against a hosted six-migration state: the
+activation migration is still not deployed, and hosted API checks remain pending.
 
 No Flutter/analyzer/Android test was run in the server slice: no client/native code changed. No hosted
 RPC/deployment, activation, enrollment, GPS/UI work or real employee data was used.

@@ -24,8 +24,12 @@ The implementation/tests/limits in that document supersede the assessment's
 earlier proposed server controls. In particular, normal state UPDATEs now take
 the deployment fence through a trigger; a gate change no longer means replacing
 the private gate function body. The previous 19 fingerprints apply to the
-five-migration stage only. New six-migration postchecks are still required before
-a separately approved hosted deployment.
+five-migration stage only. The [gate-1 deployment follow-up](attendance-activation-deployment.md)
+now provides **52 strict six-migration postchecks**, locally validated with drift
+probes and actual local PostgREST capability/header checks. Remote read-only
+preflight/dry-run confirms only the activation migration is pending; nothing was
+deployed. Hosted six-state postchecks and API verification still require the
+separately approved gate-1 deployment, without enabling employee attendance.
 
 **Historical scope clarification:** this document originally proposed the later **v2
 activation/legacy-writer retirement**, not the intervening schema-only deployment.

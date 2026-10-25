@@ -1,5 +1,9 @@
 # Development schema deployment with legacy attendance retained
 
+This is the historical **five-migration** stage and its 19-check contract.
+For the later sixth migration, use the separate
+[activation-contract gate-1 procedure and 52-check inspection](attendance-activation-deployment.md).
+
 Prepared 2026-10-24 on `feature/attendance-live-integration`, HEAD `86aeb71`.
 **Review package only: no hosted deployment or attendance/note RPC was run.**
 This stage applies the four existing pending migrations with **gate 1** and

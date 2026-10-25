@@ -1,6 +1,31 @@
 # ChantiPoint Development Status
 
-Current slice: **client capability and epoch integration**, baseline `de3ef11`,
+Current slice: **activation-contract verification and gate-1 deployment
+preparation**, baseline `a679e02`, branch `feature/attendance-live-integration`.
+The live linked project was verified as `chantipoint-dev`: exactly five migrations,
+constant gate 1, activation table absent, and **19/19 five-state preflight** checks
+passed. `supabase db push --linked --skip-vault --dry-run` lists only
+`20261025000100_attendance_activation_contract.sql`. Nothing was deployed.
+
+The new read-only six-migration inspection passed **52/52 locally**, with source
+metadata for 37 functions and **13 rollback-only drift probes**. Relevant local
+pgTAP suites passed **98 assertions** (69 activation + 29 legacy compatibility).
+Actual cached PostgREST 16.4 HTTP/JWT passed **13 assertions**: gate-1 capability,
+anonymous denial, both replay-only misses with matching/wrong/missing epoch,
+and empty owner-scoped History embedding. Evidence digests/counts and gate/epoch
+were unchanged. No original HTTP attendance/note requests or hosted RPCs ran;
+pgTAP uses rollback-only fictional compatibility fixtures.
+
+Final local state: six migrations, gate 1, one deployment row; nine checked data
+tables empty, pgTAP absent. The disposable HTTP service/fictional identity were
+removed, and retained PostgreSQL stopped cleanly with its volume intact. No app,
+native, hosted or durable gate configuration was changed. `git diff --check` passed.
+See [gate-1 deployment preparation](attendance-activation-deployment.md) for exact
+commands, initial harness failures/fixes, resource limits and the distinct gates
+to usable attendance. `UnapprovedAttendanceCutover`, legacy dispatch and standalone
+Save remain unchanged/disabled; no administrator work was added.
+
+Previous slice: **client capability and epoch integration**, baseline `de3ef11`,
 branch `feature/attendance-live-integration`. Strict authenticated capability GETs
 now validate version, exact fields, gate/availability and server epoch against the
 independently configured request scope. V2 check-in, checkout and replay carry
