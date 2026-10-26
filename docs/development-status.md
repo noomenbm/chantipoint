@@ -1,6 +1,33 @@
 # ChantiPoint Development Status
 
-Current follow-up: **active-session note Save**, baseline
+**Pre-production blocker:** an interruption after durable checkout reservation
+but before durable C3 attendance-command preparation can leave an orphaned
+reservation requiring reviewed recovery/operator intervention. Keep the original
+evidence; no generic reset or journal deletion is approved. This must be resolved
+before production, even if controlled hosted development testing succeeds.
+
+Current follow-up: **hosted development activation and physical phone testing**,
+baseline `7da09e126d61389db873cdc6d91829a31519dcb3`. The existing
+`chantipoint-dev` project now has all seven reviewed migrations and gate 2, with
+its original server-generated epoch preserved. A private logical backup restored
+successfully with all 52 baseline checks. Migration deployment passed 57 gate-1
+checks; committed API fencing/drain, protected activation and exact ACL restoration
+passed 57 gate-2 checks. Legacy retirement, epoch rejection and rollback-only
+employee-authorization denial probes passed. Original attendance rows are unchanged.
+
+The approved fresh ARM32 Redmi A2 installation uses the normal hosted debug APK
+and signed native development authority. Normal check-in, canonical active read,
+note Save/edit/clear/final save and checkout with note preservation passed. Both
+foreground attempts stored fused fixes and honestly required review for insufficient
+accuracy; no coordinate values were exported. The one fictional test session adds
+two events, two location observations and four v2 note operations. History shows
+three closed sessions. The old non-debuggable demo installation is disabled with
+its private data retained; old offline AVDs were not enrolled or launched.
+See [hosted acceptance and deliverables](hosted-development-activation.md) for the
+final restart/sign-out checks, private backup scope, file inventory and limitations.
+This is development-only activation; the pre-production blocker above remains.
+
+Previous follow-up: **active-session note Save**, baseline
 `e07cf45626f4a30359acba6ca13a7a9fb8187861` on
 `feature/attendance-live-integration`. The normal French editor now supports
 exact replace/empty/clear intent, secure pending storage, explicit original-key

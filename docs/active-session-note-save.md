@@ -104,6 +104,13 @@ rewritten; permitting this subsequent slot does not enroll or adopt old work.
 
 ## Remaining conservative boundaries
 
+**Pre-production blocker: orphaned checkout reservation.** An interruption after
+durable checkout reservation but before durable C3 attendance-command preparation
+can require reviewed recovery/operator intervention. Controlled developer-only
+testing does not resolve this limitation. Do not ship production attendance until
+a reviewed recovery procedure exists; generic resets or evidence deletion are
+not a recovery procedure.
+
 A crash after checkout reservation but before C3 preparation can leave only its
 reference. Missing, prepared, consumed, mismatched or unreadable attendance
 evidence cannot prove confirmed canonical closure, so the reservation remains
