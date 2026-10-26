@@ -43,8 +43,9 @@ verification before a fresh action; it is not silently treated as absent storage
 Retained file-store save/clear, legacy/old DTO attendance dispatch, legacy note
 update and keyed standalone note submit/replay now invoke native retirement.
 Reads remain available, failures retain evidence, unavailable checks fail closed.
-Normal composition still constructs no legacy writer or note-save coordinator;
-standalone Save and normal note POST remain disabled.
+Normal composition constructs no legacy writer. The subsequent
+[active-session note integration](active-session-note-save.md) composes the
+note coordinator and admits only the epoch-bound v2 note endpoint.
 
 Historical approval-review rejections stopped the earlier patches. The operator
 subsequently approved these local hooks directly in chat, and integration was
@@ -89,7 +90,10 @@ essential. Do not select a new directory/environment to evade retained work.
 
 Inventory examines all legacy `attendance_*` entries in application support and
 all encrypted attendance/note namespace entries, including sidecars/unknown
-names/other owners. Retained note keys also block even when files are missing.
+names/other owners. Preparation/installation still reject all retained note
+evidence and keys. Subsequent verification admits only the approved binding's
+authenticated supported v2 note slot and its own matching alias; missing files
+or keys, legacy commands, unknown entries and sidecars continue to block.
 It returns only counts/booleans, never payloads or paths. Missing files are
 observations, explicitly reported as insufficient for provenance.
 
@@ -113,8 +117,12 @@ deny and retain evidence. No newest-file/revision selection or normalization.
 After enrollment, the one original attendance slot may hold pending, uncertain
 or confirmed work. Native verification does not settle it; the full Dart codec
 and C3/C5 sequencing must still block new commands or recover the original key,
-bytes and receipt as appropriate. No replay miss proves non-application. Note
-evidence, any legacy source or additional attendance slot continues to block.
+bytes and receipt as appropriate. No attendance replay miss proves non-application.
+Same-binding supported v2 note evidence requires the composed note coordinator's
+exact verification/recovery and checkout fencing. Any legacy source, legacy note
+command, other binding, ambiguous note artifact or additional attendance slot
+continues to block. Signed approval bytes and the original clean checkpoint are
+not changed by subsequent note operations.
 
 No backup-policy change is included. The operator staging request/signature in
 application support contains identifiers and must stay outside shared archives.

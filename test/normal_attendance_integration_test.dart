@@ -67,6 +67,7 @@ class Harness {
   String? capabilityEpoch;
   int capabilityStatus = 200;
   String? description, note;
+  final noteReceipts = <String, Map<String, dynamic>>{};
   final requests = <http.Request>[];
   Completer<void>? responseGate, submitted;
   bool clientClosed = false;
@@ -84,6 +85,26 @@ class Harness {
       );
     }
     if (request.method == 'POST') {
+      if (request.url.path.endsWith('/save_employee_note_v2')) {
+        final retained = SessionNoteRecord.decode(
+          notes.disk.records[journalBinding().storageIdentity]!,
+          journalBinding(),
+        );
+        final command = retained.command!;
+        final replay =
+            (jsonDecode(request.body) as Map)['p_replay_only'] == true;
+        final receipt = noteReceipts.putIfAbsent(command.key, () {
+          if (!replay) note = command.text;
+          return noteReceiptJson(
+            command,
+            reason: replay ? 'replay_fenced' : null,
+          );
+        });
+        if (!(submitted?.isCompleted ?? true)) submitted!.complete();
+        await responseGate?.future;
+        if (loseReply) throw http.ClientException('private fixture');
+        return http.Response(jsonEncode(receipt), 200);
+      }
       final command = operations.record!.command!;
       final p = jsonDecode(request.body) as Map<String, dynamic>;
       if (command.operation == AttendanceCommandKind.checkIn) {
@@ -571,7 +592,7 @@ void main() {
     final closing = h.composition.close();
     await turn();
     expect(h.clientClosed, false);
-    expect(h.composition.owner!.outstandingAttempts, 1);
+    expect(h.composition.owner!.outstandingAttempts, 2);
     h.responseGate!.complete();
     await action;
     await closing;
@@ -739,7 +760,10 @@ void main() {
       await tester.ensureVisible(find.text('Remplacer la note à la sortie'));
       await tester.tap(find.text('Remplacer la note à la sortie'));
       await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), 'Brouillon conservé');
+      await tester.enterText(
+        find.byKey(const ValueKey('checkout-note')),
+        'Brouillon conservé',
+      );
       await tester.ensureVisible(find.text('Historique'));
       await tester.tap(find.text('Historique'));
       await tester.pumpAndSettle();
@@ -754,7 +778,10 @@ void main() {
         same(screen.workflow),
       );
       expect(
-        tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        tester
+            .widget<TextField>(find.byKey(const ValueKey('checkout-note')))
+            .controller!
+            .text,
         'Brouillon conservé',
       );
       expect(h.requests.where((r) => r.method == 'POST'), isEmpty);

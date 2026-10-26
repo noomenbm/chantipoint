@@ -1,5 +1,13 @@
 # Local v2 activation contract
 
+Active-session notes now have a forward-only local extension in migration
+`20261025000200`. `save_employee_note_v2` requires locked gate 2 and the same
+independently provisioned header epoch; it does not reopen either retired legacy
+note writer. Existing keys are separated by protocol and epoch. Normal client
+Save/recovery is composed under the signed development boundary; the historical
+disabled-Save statements below predate that follow-up. Hosted deployment is not
+included. See [note contract and validation](active-session-note-save.md).
+
 Baseline: `36d1ab4`, `feature/attendance-live-integration`. Migration
 `20261025000100_attendance_activation_contract.sql` is **local only**. The four
 earlier attendance migrations are now deployed to `chantipoint-dev`; its five

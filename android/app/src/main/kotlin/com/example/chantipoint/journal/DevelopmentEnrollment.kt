@@ -129,9 +129,23 @@ internal class DevelopmentEnrollment(private val context: Context,
         .filter { it.name != "journal.lock" }
     private fun hasNoteKey() = keys().aliases().toList().any { it.startsWith("${context.packageName}.session_note_operations.") }
     private fun ownName(binding: SlotBinding) = "slot_${binding.slotId}.bin"
-    private fun inventory(binding: SlotBinding, allowOwn: Boolean): String {
+    private fun inventory(binding: SlotBinding, allowOwn: Boolean, allowOwnNote: Boolean = false): String {
         val old = legacy(); val note = notes(); val target = attendance()
-        if (old.isNotEmpty() || note.isNotEmpty() || hasNoteKey() ||
+        if (allowOwnNote) {
+            // Approval still certifies the original clean checkpoint. Only the
+            // subsequently created, authenticated SAME-binding v2 note slot is
+            // admitted on verification, never on preparation/installation.
+            val aliases = keys().aliases().toList().filter { it.startsWith("${context.packageName}.session_note_operations.") }
+            val ownAlias = "${context.packageName}.session_note_operations.${binding.slotId}.aes.v1"
+            if (note.any { it.name != ownName(binding) } || aliases.any { it != ownAlias } ||
+                note.isEmpty() != aliases.isEmpty()) problem("journal_unreadable")
+            if (note.isNotEmpty()) {
+                val bytes = EncryptedJournalStore(context, binding).read(binding) ?: problem("journal_unreadable")
+                val header = StorageHeader.note(bytes, binding)
+                if (header.command != null && (header.command["note_protocol"] as? NumberToken)?.raw != "2") problem("journal_unreadable")
+            }
+        }
+        if (old.isNotEmpty() || (!allowOwnNote && (note.isNotEmpty() || hasNoteKey())) ||
             target.any { !allowOwn || it.name != ownName(binding) }) problem("journal_unreadable")
         // Digest certifies only this measured empty namespace, not past history.
         return sha256Hex(framed("development-clean-checkpoint-v1", listOf(context.packageName, binding.slotId)))
@@ -187,7 +201,8 @@ internal class DevelopmentEnrollment(private val context: Context,
             .toString().toByteArray(Charsets.UTF_8)
         }
     }
-    private fun validate(payload: ByteArray, signature: ByteArray, publicKey: String, binding: SlotBinding): Map<*, *> {
+    private fun validate(payload: ByteArray, signature: ByteArray, publicKey: String, binding: SlotBinding,
+        allowOwnNote: Boolean = false): Map<*, *> {
         if (payload.size > 4096 || signature.size > 128 || publicKey.length > 512) problem("journal_corrupt")
         val trusted = KeyFactory.getInstance("EC").generatePublic(X509EncodedKeySpec(Base64.decode(publicKey, Base64.NO_WRAP)))
         // Exactly P-256; arbitrary algorithms/curves cannot widen the contract.
@@ -206,7 +221,7 @@ internal class DevelopmentEnrollment(private val context: Context,
             SlotBinding.parse(data["binding"]) != binding || data["policy"] != "certified-clean-development-v1" ||
             !Regex("^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$").matches(binding.values[0])) problem("journal_identity_mismatch")
         text(data["approval_ref"], 128); text(data["maintenance_ref"], 128)
-        if (data["inventory_digest"] != inventory(binding, true)) problem("journal_revision_conflict")
+        if (data["inventory_digest"] != inventory(binding, true, allowOwnNote)) problem("journal_revision_conflict")
         return data
     }
     private fun unpack(bytes: ByteArray): Pair<ByteArray, ByteArray> = DataInputStream(ByteArrayInputStream(bytes)).use {
@@ -222,7 +237,7 @@ internal class DevelopmentEnrollment(private val context: Context,
     fun verify(binding: SlotBinding, publicKey: String): Map<String, Any> = locked {
         if (existingRoot().map { it.name }.toSet() != setOf("enrollment.lock", "approval.bin")) problem("journal_unreadable")
         val (payload, signature) = unpack(read(approval))
-        val data = validate(payload, signature, publicKey, binding)
+        val data = validate(payload, signature, publicKey, binding, allowOwnNote = true)
         if (attendance().map { it.name } != listOf(ownName(binding))) problem("journal_unreadable")
         // Never normalize sidecars or treat a missing required slot as empty.
         if (EncryptedJournalStore(context).read(binding) == null) problem("journal_unreadable")

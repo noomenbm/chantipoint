@@ -18,7 +18,12 @@ String _uuid(Object? value) {
 
 /// Immutable note intent, never an attendance JournalCommand. No credentials.
 final class SessionNoteCommand {
-  SessionNoteCommand._(this.identity, this.parametersJson) {
+  SessionNoteCommand._(
+    this.identity,
+    this.parametersJson,
+    this.contractVersion,
+  ) {
+    if (contractVersion != 1 && contractVersion != 2) invalidJournal();
     journalInteger(identity.generation, min: 1);
     final p = parameters;
     journalFields(p, {
@@ -47,6 +52,7 @@ final class SessionNoteCommand {
     required String sessionId,
     required String operationKey,
     required CheckoutNoteIntent note,
+    int contractVersion = 1,
   }) => SessionNoteCommand._(
     identity,
     JournalJson.encode({
@@ -56,8 +62,10 @@ final class SessionNoteCommand {
       'p_employee_note': note.text,
       'p_replay_only': false,
     }, limit: JournalJson.payloadLimit),
+    contractVersion,
   );
   final AttendanceOperationIdentity identity;
+  final int contractVersion;
   final String parametersJson;
   Map<String, dynamic> get parameters => journalObject(
     JournalJson.decodeText(parametersJson, limit: JournalJson.payloadLimit),
@@ -72,6 +80,7 @@ final class SessionNoteCommand {
         }, limit: JournalJson.payloadLimit)
       : parametersJson;
   Map<String, dynamic> toJson() => {
+    if (contractVersion != 1) 'note_protocol': contractVersion,
     'captured_generation': identity.generation,
     'parameters_json': parametersJson,
   };
@@ -79,18 +88,28 @@ final class SessionNoteCommand {
     JournalBinding binding,
     Map<String, dynamic> json,
   ) {
-    journalFields(json, {'captured_generation', 'parameters_json'});
+    journalFields(json, {
+      'captured_generation',
+      'parameters_json',
+      if (json.containsKey('note_protocol')) 'note_protocol',
+    });
+    if (json.containsKey('note_protocol') &&
+        (json['note_protocol'] is! int || json['note_protocol'] != 2)) {
+      invalidJournal();
+    }
     return SessionNoteCommand._(
       AttendanceOperationIdentity(
         binding,
         journalInteger(json['captured_generation'], min: 1),
       ),
       journalText(json['parameters_json'], max: JournalJson.payloadLimit),
+      json.containsKey('note_protocol') ? 2 : 1,
     );
   }
   bool same(SessionNoteCommand other) =>
       identity.binding.matches(other.identity.binding) &&
       identity.generation == other.identity.generation &&
+      contractVersion == other.contractVersion &&
       parametersJson == other.parametersJson;
 }
 
@@ -108,6 +127,7 @@ final class SessionNoteReceipt {
       JournalJson.decodeText(text, limit: JournalJson.payloadLimit),
     );
     journalFields(r, {
+      if (command.contractVersion == 2) 'deployment_epoch',
       'note_contract_version',
       'operation_key',
       'employee_profile_id',
@@ -119,7 +139,9 @@ final class SessionNoteReceipt {
       'settled_at',
     });
     if (r['note_contract_version'] is! int ||
-        r['note_contract_version'] != 1 ||
+        r['note_contract_version'] != command.contractVersion ||
+        (command.contractVersion == 2 &&
+            r['deployment_epoch'] != command.identity.binding.environmentId) ||
         r['operation_key'] != command.key ||
         r['employee_profile_id'] != command.identity.binding.profileId ||
         r['company_id'] != command.identity.binding.companyId ||

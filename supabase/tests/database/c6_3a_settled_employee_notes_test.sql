@@ -49,7 +49,7 @@ select ok(not has_table_privilege('authenticated','private.employee_note_operati
   and not has_table_privilege('anon','private.employee_note_operations','select,insert,update,delete'),
   'no direct metadata grants');
 select is((select count(*)::int from information_schema.columns where table_schema='private'
-  and table_name='employee_note_operations'),9,'metadata has only nine reviewed columns; no note text/action history');
+  and table_name='employee_note_operations'),11,'metadata includes protocol and epoch separation; no note text/action history');
 select is((select count(*)::int from pg_constraint where conrelid='private.employee_note_operations'::regclass
   and contype='f'),2,'auth and full session/owner foreign keys');
 

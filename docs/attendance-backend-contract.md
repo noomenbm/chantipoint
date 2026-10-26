@@ -166,6 +166,19 @@ Every attendance writer takes shared transaction advisory lock `(174811, 2)`. A 
 
 Flutter still cannot parse `location_unverified`, accept factory names during reconciliation, persist GPS in journal version 1, or check out all contexts. Upgrade those paths and reconcile/drain old journals before cutover. Do not blindly convert, discard or resubmit an old pending command with a new payload/key. Real-location journals need strict version/owner/environment binding, device-protected encryption, backup/log exclusion and an approved retention/recovery policy before real employee use. No such client changes are implemented here.
 
+## V2 active-session note extension
+
+The forward-only `20261025000200_active_session_notes_v2.sql` migration exposes
+`save_employee_note_v2` under locked gate 2 and the trusted request-header epoch.
+It reuses the private settled-note implementation below, with private per-key
+protocol/epoch metadata preventing legacy or old-epoch key adoption. Its exact
+ten-field receipt uses note contract version 2 and includes deployment epoch.
+Both legacy public note writers remain retired at gate 2. Gate-1 legacy keys
+retain their original behavior; v2 keys cannot be reinterpreted after gate rollback.
+No attendance hash, frozen payload, receipt or committed migration changes.
+See [active-session Save](active-session-note-save.md) for client integration,
+text semantics, ordering tests and current runtime validation status.
+
 ## C6.3a settled note operations (server only)
 
 Forward migration: `20261021000100_settled_employee_note_operations.sql`. No earlier

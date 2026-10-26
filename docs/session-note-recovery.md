@@ -1,4 +1,13 @@
-# C6.3b isolated client note recovery foundation
+# Session note recovery
+
+The normal application now composes this coordinator and secure Android storage
+for signed, gate-2 development use. See [active-session note Save](active-session-note-save.md)
+for the v2 endpoint, protocol/epoch separation, French editor, checkout fencing,
+validation status and conservative recovery limits. The format-1 note envelope is
+preserved; new commands carry `note_protocol=2`, and old protocol-1 commands remain
+blocked rather than being converted. Hosted deployment remains separately guarded.
+
+## Historical C6.3b foundation
 
 This foundation is opt-in and has no production workflow or navigation wiring.
 `Enregistrer la note` remains disabled. The live legacy controller, unkeyed

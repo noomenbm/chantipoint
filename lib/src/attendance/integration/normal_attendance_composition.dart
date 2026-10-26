@@ -23,6 +23,7 @@ import '../journal/command_journal.dart';
 import '../journal/journal_verifier.dart';
 import '../notes/android_session_note_storage.dart';
 import '../notes/session_note_ports.dart';
+import '../notes/session_note_coordinator.dart';
 import '../scoped_attendance_active_session_reader.dart';
 import '../supabase_attendance_operation_transport.dart';
 import 'attendance_integration_guard.dart';
@@ -33,7 +34,7 @@ typedef EmployeeAttendanceWorkflowFactory = EmployeeAttendanceWorkflow Function(
 );
 
 /// Application lifetime, never a screen-owned client/owner/coordinator. Main has
-/// NO legacy writer and NO note-save coordinator. Test ports are explicit.
+/// No legacy writer. Attendance and notes share durable checkout exclusion.
 final class NormalAttendanceComposition {
   NormalAttendanceComposition({
     required this.auth,
@@ -112,6 +113,7 @@ final class NormalAttendanceComposition {
               (await AndroidLegacyMigration().inspect(binding)).source,
       notes: notes ?? const AndroidSessionNoteStorage(),
       enrichedSessions: sessionProjection == AttendanceSessionProjection.v2,
+      noteRecoveryEnabled: true,
       requireCapability: (identity) => transport.requireV2Capability(identity),
     );
     transport = SupabaseAttendanceOperationTransport(
@@ -121,7 +123,8 @@ final class NormalAttendanceComposition {
       beforeAttendanceWrite: guard.beforeAction,
       authorizeWrite: (identity, path) {
         if (path != '/rest/v1/rpc/check_in_v2' &&
-            path != '/rest/v1/rpc/check_out_v2') {
+            path != '/rest/v1/rpc/check_out_v2' &&
+            path != '/rest/v1/rpc/save_employee_note_v2') {
           throw const AttendanceIntegrationFailure(
             'L’enregistrement de note reste désactivé.',
           );
@@ -136,6 +139,21 @@ final class NormalAttendanceComposition {
       canonical: transport,
       verifier: verifier ?? const AndroidJournalVerifier(),
     );
+    noteCoordinator = SessionNoteCoordinator(
+      storage: guard.notes,
+      transport: transport,
+      canonical: transport,
+      attendance: coordinator,
+      issueContext: () {
+        if (_closed || owner == null) {
+          throw const AttendanceIntegrationFailure(
+            'Autorisation indisponible.',
+          );
+        }
+        return owner!.issueContext();
+      },
+      requireV2: true,
+    );
   }
   final AuthController auth;
   final http.Client client;
@@ -145,6 +163,7 @@ final class NormalAttendanceComposition {
   late final SupabaseAttendanceOperationTransport transport;
   late final ScopedAttendanceActiveSessionReader active;
   late final AttendanceOperationCoordinator coordinator;
+  late final SessionNoteCoordinator noteCoordinator;
   final _workflows = <EmployeeAttendanceWorkflow>{};
   bool _closed = false;
   Future<void>? _closing;
@@ -179,6 +198,7 @@ final class NormalAttendanceComposition {
         keys: SecureAttendanceActionKeys(),
       ),
       coordinator: coordinator,
+      notes: noteCoordinator,
       integrationGuard: guard,
       onDisposed: () {
         unawaited(

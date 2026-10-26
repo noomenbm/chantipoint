@@ -18,6 +18,7 @@ enum NoteOperationOutcome {
   blocked,
   invalidated,
   checkoutFinished,
+  attendanceFinished,
 }
 
 enum NoteOperationProblem {
@@ -55,8 +56,8 @@ final class NoteOperationResult {
   AttendanceOperationResult? get attendance => isCurrent ? _attendance : null;
 }
 
-/// Application-lifetime, opt-in foundation. No live workflow or Save wiring.
-/// Shared isolate queue plus durable native CAS reservations; all future note
+/// Application-lifetime note and checkout boundary, used by normal composition.
+/// Shared isolate queue plus durable native CAS reservations; all cooperating note
 /// and checkout callers must use this boundary. It does not fence legacy writers.
 final class SessionNoteCoordinator {
   SessionNoteCoordinator({
@@ -65,12 +66,14 @@ final class SessionNoteCoordinator {
     required this.canonical,
     required this.attendance,
     required this.issueContext,
+    this.requireV2 = false,
   });
   final SessionNoteStorage storage;
   final SessionNoteTransport transport;
   final AttendanceCanonicalReader canonical;
   final AttendanceOperationCoordinator attendance;
   final AttendanceOperationContext Function() issueContext;
+  final bool requireV2;
   static final _tails = <String, Future<void>>{};
   static final _used = Expando<bool>('note-attempt');
   final _seen = <String>{};
@@ -80,6 +83,7 @@ final class SessionNoteCoordinator {
     SessionNoteCommand command,
   ) => _run(context, (owner) async {
     if (!command.identity.binding.matches(owner.identity.binding) ||
+        (requireV2 && command.contractVersion != 2) ||
         command.identity.generation != owner.identity.generation) {
       return _blocked(owner, NoteOperationProblem.conflict);
     }
@@ -127,9 +131,53 @@ final class SessionNoteCoordinator {
           );
         }
         await _verify(record);
+        await _attendanceClear(owner);
         owner.requireCurrent();
         return _dispatch(owner, record, replayOnly: true);
       });
+
+  /// Normal composition routes selection, check-in and receipt consumption
+  /// through the same binding queue. A checkout lease must settle first.
+  Future<NoteOperationResult> attendanceOperation(
+    AttendanceOperationContext context,
+    Future<AttendanceOperationResult> Function(AttendanceOperationContext)
+    action,
+  ) => _run(context, (owner) async {
+    final record = await _read(owner);
+    if (record.phase == SessionNotePhase.pending ||
+        record.phase == SessionNotePhase.checkout) {
+      return _blocked(
+        owner,
+        record.phase == SessionNotePhase.checkout
+            ? NoteOperationProblem.checkoutPending
+            : NoteOperationProblem.pending,
+      );
+    }
+    if (record.phase == SessionNotePhase.terminal &&
+        (await _terminal(owner, record)).session == null) {
+      return _blocked(owner, NoteOperationProblem.canonical);
+    }
+    owner.requireCurrent();
+    final child = issueContext();
+    var transferred = false;
+    try {
+      if (identical(child, context) ||
+          !child.isCurrent ||
+          child.identity.generation != owner.identity.generation ||
+          !child.identity.binding.matches(owner.identity.binding)) {
+        throw const _Gate(NoteOperationProblem.context);
+      }
+      transferred = true;
+      final result = await action(child);
+      return NoteOperationResult._(
+        NoteOperationOutcome.attendanceFinished,
+        owner,
+        attendance: result,
+      );
+    } finally {
+      if (!transferred && !identical(child, context)) await child.release();
+    }
+  });
 
   Future<NoteOperationResult> _dispatch(
     _Attempt owner,
@@ -326,14 +374,29 @@ final class SessionNoteCoordinator {
       throw const _Gate(NoteOperationProblem.attendancePending);
     }
     if (read.record != null) {
-      final verifier = attendance.verifier;
-      if (verifier == null ||
-          await verifier.verify(
-                owner.identity.binding,
-                JournalCodec.encode(read.record!),
-              ) !=
-              null) {
-        throw const _Gate(NoteOperationProblem.attendancePending);
+      // Restore C3's OWN exact empty-state proof, not just an independent note
+      // verifier check. Otherwise a cold recovered note could reserve checkout
+      // before C3 rejects its still-unverified empty tombstone.
+      owner.requireCurrent();
+      final child = issueContext();
+      if (identical(child, owner.context)) {
+        throw const _Gate(NoteOperationProblem.context);
+      }
+      var transferred = false;
+      try {
+        if (!_Attempt(child, child.identity, transport).current ||
+            child.identity.generation != owner.identity.generation ||
+            !child.identity.binding.matches(owner.identity.binding)) {
+          throw const _Gate(NoteOperationProblem.context);
+        }
+        transferred = true;
+        final proof = await attendance.recoverEmpty(child);
+        owner.requireCurrent();
+        if (proof.outcome != AttendanceOperationOutcome.emptyVerified) {
+          throw const _Gate(NoteOperationProblem.attendancePending);
+        }
+      } finally {
+        if (!transferred) await child.release();
       }
       final again = await CommandJournal(attendance.storage)
           .read(owner.identity.binding);
@@ -356,7 +419,13 @@ final class SessionNoteCoordinator {
       return SessionNoteRecord.absent(binding);
     }
     _seen.add(binding.storageIdentity);
-    return SessionNoteRecord.decode(read.bytes, binding);
+    final record = SessionNoteRecord.decode(read.bytes, binding);
+    if (requireV2 &&
+        record.command != null &&
+        record.command!.contractVersion != 2) {
+      throw const _Gate(NoteOperationProblem.storage);
+    }
+    return record;
   }
 
   Future<void> _verify(SessionNoteRecord record) async {

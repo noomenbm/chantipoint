@@ -2,6 +2,7 @@ import '../attendance_operation_transport.dart';
 import '../journal/journal_command.dart';
 import '../journal/legacy_journal_migration.dart';
 import '../notes/session_note_ports.dart';
+import '../journal/journal_json.dart';
 
 /// A future issuer must establish deployment capability/gate, trusted binding,
 /// durable ownership and old-writer fencing held THROUGH operation settlement.
@@ -38,12 +39,14 @@ final class AttendanceIntegrationGuard {
     required this.enrichedSessions,
     this.requireCapability,
     this.verifyDevice,
+    this.noteRecoveryEnabled = false,
   });
   final String? configurationMessage;
   final AttendanceCutoverAuthority cutover;
   final LegacyAttendanceInspection inspectLegacy;
   final SessionNoteStorage notes;
   final bool enrichedSessions;
+  final bool noteRecoveryEnabled;
   final Future<void> Function(AttendanceOperationIdentity)? requireCapability;
   // Combined native/capability/native preflight, bootstrapped on refresh before
   // synchronous isApproved. No enrollment, cleanup or absence-based approval.
@@ -84,13 +87,29 @@ final class AttendanceIntegrationGuard {
           'Aucun nouveau pointage ne sera envoyé. Contactez votre administrateur.',
         );
       }
-      // Note Save is NOT composed. Any retained note slot, even terminal, needs
-      // the reviewed shared note/checkout recovery boundary, not a guessed gate.
-      if (await notes.read(identity.binding) != null) {
+      // Only the composed coordinator may handle a verified v2 retained slot.
+      // Legacy isolated callers keep the original blanket denial.
+      final retained = await notes.read(identity.binding);
+      if (retained != null && !noteRecoveryEnabled) {
         throw const AttendanceIntegrationFailure(
           'Une opération de note conservée doit être vérifiée avant le pointage. '
           'Les données restent conservées sur cet appareil.',
         );
+      }
+      if (retained != null && noteRecoveryEnabled) {
+        if (retained.command != null &&
+            retained.command!.contractVersion != 2) {
+          throw const AttendanceIntegrationFailure(
+            'Une ancienne opération de note doit être examinée. Les données restent conservées.',
+          );
+        }
+        await notes.verify(retained);
+        final again = await notes.read(identity.binding);
+        if (again == null ||
+            JournalJson.encode(again.toJson()) !=
+                JournalJson.encode(retained.toJson())) {
+          throw const FormatException();
+        }
       }
       await verifyDevice?.call(identity);
     } on AttendanceIntegrationFailure {

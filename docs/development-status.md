@@ -1,6 +1,33 @@
 # ChantiPoint Development Status
 
-Current follow-up: **foreground location runtime validation**, 2026-10-25,
+Current follow-up: **active-session note Save**, baseline
+`e07cf45626f4a30359acba6ca13a7a9fb8187861` on
+`feature/attendance-live-integration`. The normal French editor now supports
+exact replace/empty/clear intent, secure pending storage, explicit original-key
+recovery and shared checkout reservation/consumption fencing. A new local-only
+v2 note migration requires gate 2 and trusted epoch and rejects legacy/old-epoch
+key adoption; neither old note endpoint is reopened. Default/release and hosted
+activation remain guarded. After a confirmed cold-recovery observation/proof gap
+was corrected, **1,764 full Flutter tests** and **122 affected integration tests**
+passed. **896 database assertions**, **8 real SQL overlap scenarios**, isolated
+APK build and **27 fresh + 4 restart native checks** passed. Normal-app/local
+creation, editing, empty/NULL clearing and lost-acknowledgement original-key
+recovery were exercised successfully. Docker startup received explicit user
+authorization after automatic review's initial rejection; retained development
+stayed stopped and original rehearsal records were preserved. See [implementation
+and acceptance](active-session-note-save.md) for the completed device checks and
+remaining orphaned-checkout-reference recovery limit.
+
+The final normal build also completed cold note recovery followed immediately
+by checkout/preserve, receipt consumption, three closed History rows and logout.
+Final local aggregates are three closed sessions, six events, six location
+observations and six applied v2 note operations; the prior two-session evidence
+and signed approval were unchanged. Save performed no GPS acquisition. The app
+is signed out; the dedicated emulator/proxy/rehearsal services are stopped with
+data retained. This feature works locally under signed gate-2 authority; no
+hosted deployment, real employee operation, data reset or Git mutation occurred.
+
+Previous follow-up: **foreground location runtime validation**, 2026-10-25,
 baseline `3060a85c8765d2787121fc5fddf7c468edeebac8` on
 `feature/attendance-live-integration`. The isolated package obtained a real
 physical Android 13 fused fix with precise permission and accuracy available

@@ -12,6 +12,103 @@ void main() {
   late SessionNoteFixture f;
   setUp(() => f = SessionNoteFixture());
   tearDown(() => f.close());
+  test('v2 command round trip pins protocol; legacy receipt and wrong epoch cannot confirm', () {
+    final original = f.command();
+    final command = SessionNoteCommand.capture(
+      identity: original.identity,
+      sessionId: original.sessionId,
+      operationKey: original.key,
+      note: const CheckoutNoteIntent.clear(),
+      contractVersion: 2,
+    );
+    final record = SessionNoteRecord.absent(command.identity.binding)
+        .prepare(command);
+    final decoded = SessionNoteRecord.decode(
+      record.bytes,
+      command.identity.binding,
+    );
+    expect(decoded.command!.same(command), true);
+    expect(command.toJson()['note_protocol'], 2);
+    final receipt = noteReceiptJson(command);
+    expect(
+      SessionNoteReceipt.parse(jsonEncode(receipt), command).outcome,
+      SessionNoteOutcome.applied,
+    );
+    for (final invalid in [
+      {...receipt, 'deployment_epoch': journalOtherId},
+      {...receipt, 'note_contract_version': 1},
+      {...receipt}..remove('deployment_epoch'),
+      {...receipt, 'extra': false},
+    ]) {
+      expect(
+        () => SessionNoteReceipt.parse(jsonEncode(invalid), command),
+        throwsA(isA<JournalException>()),
+      );
+    }
+    expect(
+      () => SessionNoteCommand.fromJson(command.identity.binding, {
+        ...command.toJson(),
+        'note_protocol': 3,
+      }),
+      throwsA(isA<JournalException>()),
+    );
+    expect(
+      () => SessionNoteCommand.fromJson(command.identity.binding, {
+        ...command.toJson(),
+        'note_protocol': 2.0,
+      }),
+      throwsA(isA<JournalException>()),
+    );
+    expect(
+      () => SessionNoteReceipt.parse(jsonEncode(receipt), original),
+      throwsA(isA<JournalException>()),
+    );
+  });
+  test('v2 command round trip pins protocol; legacy receipt and wrong epoch cannot confirm', () {
+    final original = f.command();
+    final command = SessionNoteCommand.capture(
+      identity: original.identity,
+      sessionId: original.sessionId,
+      operationKey: original.key,
+      note: const CheckoutNoteIntent.clear(),
+      contractVersion: 2,
+    );
+    final record = SessionNoteRecord.absent(command.identity.binding)
+        .prepare(command);
+    final decoded = SessionNoteRecord.decode(
+      record.bytes,
+      command.identity.binding,
+    );
+    expect(decoded.command!.same(command), true);
+    expect(command.toJson()['note_protocol'], 2);
+    final receipt = noteReceiptJson(command);
+    expect(
+      SessionNoteReceipt.parse(jsonEncode(receipt), command).outcome,
+      SessionNoteOutcome.applied,
+    );
+    for (final invalid in [
+      {...receipt, 'deployment_epoch': journalOtherId},
+      {...receipt, 'note_contract_version': 1},
+      {...receipt}..remove('deployment_epoch'),
+      {...receipt, 'extra': false},
+    ]) {
+      expect(
+        () => SessionNoteReceipt.parse(jsonEncode(invalid), command),
+        throwsA(isA<JournalException>()),
+      );
+    }
+    expect(
+      () => SessionNoteCommand.fromJson(command.identity.binding, {
+        ...command.toJson(),
+        'note_protocol': 3,
+      }),
+      throwsA(isA<JournalException>()),
+    );
+    expect(
+      () => SessionNoteReceipt.parse(jsonEncode(receipt), original),
+      throwsA(isA<JournalException>()),
+    );
+  });
   test(
     'immutable generation, binding and original parameter bytes round trip',
     () {

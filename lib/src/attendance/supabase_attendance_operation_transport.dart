@@ -139,14 +139,23 @@ final class SupabaseAttendanceOperationTransport
       );
     }
     final scope = await _acquire(identity);
-    authorizeWrite?.call(identity, '/rest/v1/rpc/save_employee_note');
-    await requireLegacyWriterAllowed();
+    final v2 = command.contractVersion == 2;
+    final path =
+        '/rest/v1/rpc/${v2 ? 'save_employee_note_v2' : 'save_employee_note'}';
+    final epoch = v2 ? _epoch(identity, scope) : null;
+    authorizeWrite?.call(identity, path);
+    if (v2) {
+      await beforeAttendanceWrite?.call(identity);
+    } else {
+      await requireLegacyWriterAllowed();
+    }
     final text = await _send(
       identity,
       scope,
       'POST',
-      '/rest/v1/rpc/save_employee_note',
+      path,
       body: command.body(replayOnly: replayOnly),
+      epoch: epoch,
     );
     // Do not discard a valid late receipt after submission/auth invalidation.
     try {

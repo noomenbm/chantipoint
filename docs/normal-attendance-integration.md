@@ -7,7 +7,8 @@ development enrollment verifier. Default/release denial remains; independently
 trusted epoch/public-key configuration cannot authorize attendance alone. Native
 approval, original full binding/current auth generation and a fresh matching
 gate-2 capability must pass before enriched reads/actions. Refresh bootstraps
-verification; capture and pre-POST repeat it. Standalone Save remains disabled.
+verification; capture and pre-POST repeat it. Active-session Save now uses the
+shared note/checkout coordinator described [here](active-session-note-save.md).
 Old adapters check durable local retirement without deleting retained work.
 See [development device authority](development-device-authority.md) for exact
 configuration, operator approval, native recovery, admission/drain limits and
@@ -30,7 +31,7 @@ An error never selects that writer as a fallback.
 ## Composition and lifetime
 
 `NormalAttendanceComposition` owns one `AttendanceAuthOwner`, pinned HTTP client,
-scoped active-session reader and C3 operation coordinator for the application
+scoped active-session reader, C3 operation coordinator and note coordinator for the application
 lifetime. Each employee home owns a C5 workflow/screen, C4 foreground capture
 and drafts. History is a sibling in the authenticated subtree and does not
 dispose attendance during navigation. Non-employee roles receive no workflow.
@@ -88,9 +89,10 @@ remain prerequisites; this composition does not approve or change backup policy.
 
 When a trusted namespace exists, read-only legacy source inspection and separate
 encrypted note-slot inspection precede C3 reads. Any source, temporary/unexpected
-artifact, unreadable inspection or retained note slot blocks pointage and is
-preserved. File absence is not provenance or durable fencing proof. No migration,
-source binding, deletion, reset or note recovery is performed. The source
+artifact or unreadable inspection blocks pointage and is preserved. Verified
+same-binding v2 note evidence is handled by the composed recovery coordinator;
+legacy note evidence still blocks. File absence is not provenance or durable
+fencing proof. No migration, source binding, deletion or reset is performed. The source
 inspector and native storage retain their existing reviewed recovery policies.
 Missing namespace does not guess which binding to inspect.
 
@@ -102,15 +104,16 @@ network and malformed responses remain errors, never an empty active session.
 The v2 enriched projection is selected for the signed DEBUG boundary or explicit
 fictional test ports; changing the projection alone cannot enable writes.
 
-## Standalone notes remain disabled
+## Active-session note Save
 
-`Enregistrer la note` has no handler. Normal composition supplies no note
-coordinator and refuses the note RPC even under a test attendance approval. Any
-existing note record (including terminal evidence or checkout reservation) blocks
-this composition until a reviewed shared note/checkout recovery boundary exists.
-Activation additionally requires the settled-note backend deployment, compatible
-old-writer fencing and all attendance cutover obligations. Final-note intent is
-part of the immutable checkout command, not a standalone save.
+`Enregistrer la note` and explicit clear use the application-lifetime
+`SessionNoteCoordinator`. Pending notes and checkout reservations expose explicit
+recovery and disable conflicting actions. Terminal proof must be verified and
+canonically refreshed. Normal transport admits only `save_employee_note_v2`,
+under the same signed authorization/capability/epoch checks as attendance. The
+legacy note RPC is still denied. Local use additionally requires the new
+`20261025000200` migration; no hosted deployment is included. Final-note intent
+remains in the immutable checkout command. See [contract and limits](active-session-note-save.md).
 
 ## Current hosted development behavior
 

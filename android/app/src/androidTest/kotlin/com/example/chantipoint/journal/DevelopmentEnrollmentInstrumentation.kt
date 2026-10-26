@@ -26,6 +26,16 @@ class DevelopmentEnrollmentInstrumentation : Instrumentation() {
         "binding" to JSONObject(binding.toWire()), "phase" to "empty", "command" to JSONObject.NULL,
         "write_may_have_started" to false, "confirmation" to JSONObject.NULL, "block" to JSONObject.NULL,
         "migration" to JSONObject.NULL)).toString().toByteArray()
+    private fun pendingNote(v2: Boolean = true): ByteArray {
+        val parameters = JSONObject(linkedMapOf("p_work_session_id" to "00000000-0000-4000-8000-000000000044",
+            "p_operation_key" to "fictional-note-v2-key", "p_note_action" to "clear",
+            "p_employee_note" to JSONObject.NULL, "p_replay_only" to false))
+        val command = JSONObject(linkedMapOf("captured_generation" to 1, "parameters_json" to parameters.toString()))
+        if (v2) command.put("note_protocol", 2)
+        return JSONObject(linkedMapOf("note_format" to 1, "revision" to 1,
+            "binding" to JSONObject(binding.toWire()), "phase" to "pending", "command" to command,
+            "receipt_json" to JSONObject.NULL, "checkout" to JSONObject.NULL)).toString().toByteArray()
+    }
     override fun onCreate(arguments: Bundle?) { super.onCreate(arguments); phase = arguments?.getString("phase") ?: "fresh"; start() }
     private fun resetFixtures() {
         check(targetContext.packageName == "com.example.chantipoint.enrollmentvalidation")
@@ -84,7 +94,13 @@ class DevelopmentEnrollmentInstrumentation : Instrumentation() {
                 fresh("interrupted-atomic-write-blocked") { val a = prepared(); reject { install(a, DevelopmentEnrollment(targetContext, JournalVerificationIo { if (it == "enrollment_before_finish") error("fixture") })) }; reject { verify(a) }; reject { install(a) }; check(File(enrollmentFile.path + ".new").exists()) }
                 fresh("lost-install-response-retry") { val a = prepared(); reject { install(a, DevelopmentEnrollment(targetContext, JournalVerificationIo { if (it == "enrollment_after_sync") error("fixture") })) }; verify(a); install(a); verify(a) }
                 fresh("approval-replacement-blocked") { val a = installed(); val b = a.copy(payload = a.payload + byteArrayOf(32)); reject { install(b) }; verify(a) }
-                fresh("restart-fixture") { val a = installed(); verify(a); File(targetContext.filesDir, "fixture-original.bin").writeBytes(enrollmentFile.readBytes()) }
+                fresh("own-v2-note-admitted") { val a = installed(); EncryptedJournalStore(targetContext, binding).compareAndSwap(binding, 0, null, pendingNote()); verify(a); reject { install(a) } }
+                fresh("legacy-note-still-blocked") { val a = installed(); EncryptedJournalStore(targetContext, binding).compareAndSwap(binding, 0, null, pendingNote(false)); reject { verify(a) } }
+                fresh("unknown-note-still-blocked") { val a = installed(); File(root, "session_note_operations").mkdir(); File(root, "session_note_operations/unknown.bin").writeText("fictional"); reject { verify(a) } }
+                fresh("note-sidecar-still-blocked") { val a = installed(); EncryptedJournalStore(targetContext, binding).compareAndSwap(binding, 0, null, pendingNote()); val f = File(root, "session_note_operations/slot_${binding.slotId}.bin"); f.copyTo(File(f.path + ".new")); reject { verify(a) }; check(File(f.path + ".new").exists()) }
+                fresh("missing-note-record-still-blocked") { val a = installed(); EncryptedJournalStore(targetContext, binding).compareAndSwap(binding, 0, null, pendingNote()); check(File(root, "session_note_operations/slot_${binding.slotId}.bin").delete()); reject { verify(a) } }
+                fresh("note-missing-key-still-blocked") { val a = installed(); EncryptedJournalStore(targetContext, binding).compareAndSwap(binding, 0, null, pendingNote()); KeyStore.getInstance("AndroidKeyStore").apply { load(null); deleteEntry("${targetContext.packageName}.session_note_operations.${binding.slotId}.aes.v1") }; reject { verify(a) } }
+                fresh("restart-fixture") { val a = installed(); EncryptedJournalStore(targetContext, binding).compareAndSwap(binding, 0, null, pendingNote()); verify(a); File(targetContext.filesDir, "fixture-original.bin").writeBytes(enrollmentFile.readBytes()) }
             } else if (phase == "restart") {
                 val publicKey = operatorFile.readText()
                 test("restart-authorized") { check(store.verify(binding, publicKey)["status"] == "approved") }

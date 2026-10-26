@@ -40,7 +40,9 @@ Map<String, dynamic> noteReceiptJson(
   SessionNoteCommand command, {
   String? reason,
 }) => {
-  'note_contract_version': 1,
+  'note_contract_version': command.contractVersion,
+  if (command.contractVersion == 2)
+    'deployment_epoch': command.identity.binding.environmentId,
   'operation_key': command.key,
   'employee_profile_id': command.identity.binding.profileId,
   'company_id': command.identity.binding.companyId,

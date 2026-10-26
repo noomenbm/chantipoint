@@ -28,7 +28,9 @@ internal data class StorageHeader(val revision: Long, val key: String?, val phas
             if (phase !in setOf("empty", "pending", "terminal", "checkout")) problem("journal_corrupt")
             val command = root["command"]?.let { it as? Map<*, *> ?: problem("journal_corrupt") }
             val key = command?.let {
-                exactFields(it, setOf("captured_generation", "parameters_json"))
+                val fields = setOf("captured_generation", "parameters_json")
+                exactFields(it, if (it.containsKey("note_protocol")) fields + "note_protocol" else fields)
+                if (it.containsKey("note_protocol") && number(it["note_protocol"]) != 2L) problem("journal_unsupported_format")
                 if (number(it["captured_generation"]) < 1) problem("journal_corrupt")
                 val payload = text(it["parameters_json"], 16 * 1024)
                 if (payload.toByteArray(Charsets.UTF_8).size > 16 * 1024) problem("journal_corrupt")

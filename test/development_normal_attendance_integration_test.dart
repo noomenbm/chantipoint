@@ -45,6 +45,40 @@ void main() {
     expect(h.composition.owner?.outstandingAttempts ?? 0, 0);
   }
 
+  test('signed development authority permits v2 note Save without GPS, then denies revoked approval', () async {
+    await start();
+    h.active = true;
+    await h.workflow.refresh();
+    await h.workflow.saveNote('fictional');
+    expect(h.workflow.state.noteSaveConfirmed, true);
+    expect(h.location.calls, 0);
+    final original = List<int>.of(
+      h.notes.disk.records[journalBinding().storageIdentity]!,
+    );
+    enrollment.approved = false;
+    await h.workflow.saveNote('blocked');
+    expect(h.noteReceipts.length, 1);
+    expect(h.notes.disk.records[journalBinding().storageIdentity], original);
+    expect(h.composition.owner!.outstandingAttempts, 0);
+  });
+
+  test('signed development authority permits v2 note Save without GPS, then denies revoked approval', () async {
+    await start();
+    h.active = true;
+    await h.workflow.refresh();
+    await h.workflow.saveNote('fictional');
+    expect(h.workflow.state.noteSaveConfirmed, true);
+    expect(h.location.calls, 0);
+    final original = List<int>.of(
+      h.notes.disk.records[journalBinding().storageIdentity]!,
+    );
+    enrollment.approved = false;
+    await h.workflow.saveNote('blocked');
+    expect(h.noteReceipts.length, 1);
+    expect(h.notes.disk.records[journalBinding().storageIdentity], original);
+    expect(h.composition.owner!.outstandingAttempts, 0);
+  });
+
   for (final key in ['', 'invalid', 'A' * 600]) {
     test(
       'missing/malformed independent anchor denies (${key.length})',

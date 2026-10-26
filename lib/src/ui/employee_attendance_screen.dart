@@ -28,6 +28,8 @@ class EmployeeAttendanceScreen extends StatefulWidget {
 class _EmployeeAttendanceScreenState extends State<EmployeeAttendanceScreen> {
   final _description = TextEditingController();
   final _finalNote = TextEditingController();
+  final _noteDraft = TextEditingController();
+  bool _noteDirty = false;
   CheckoutNoteAction _noteAction = CheckoutNoteAction.preserve;
   String? _sessionId;
 
@@ -43,12 +45,20 @@ class _EmployeeAttendanceScreenState extends State<EmployeeAttendanceScreen> {
     if (state.status == EmployeeAttendanceStatus.authorizationUnavailable) {
       _description.clear();
       _finalNote.clear();
+      _noteDraft.clear();
+      _noteDirty = false;
       _noteAction = CheckoutNoteAction.preserve;
       _sessionId = null;
     } else if (state.session != null && state.session!.id != _sessionId) {
       _sessionId = state.session!.id;
       _finalNote.clear();
+      _noteDraft.text = state.session!.employeeNote ?? '';
+      _noteDirty = false;
       _noteAction = CheckoutNoteAction.preserve;
+    }
+    if (state.noteSaveConfirmed && state.session?.id == _sessionId) {
+      _noteDraft.text = state.session?.employeeNote ?? '';
+      _noteDirty = false;
     }
   }
 
@@ -60,6 +70,8 @@ class _EmployeeAttendanceScreenState extends State<EmployeeAttendanceScreen> {
       oldWidget.workflow.dispose();
       _description.clear();
       _finalNote.clear();
+      _noteDraft.clear();
+      _noteDirty = false;
       _noteAction = CheckoutNoteAction.preserve;
       _sessionId = null;
       widget.workflow.addListener(_workflowChanged);
@@ -73,6 +85,7 @@ class _EmployeeAttendanceScreenState extends State<EmployeeAttendanceScreen> {
     widget.workflow.dispose();
     _description.dispose();
     _finalNote.dispose();
+    _noteDraft.dispose();
     super.dispose();
   }
 
@@ -161,17 +174,65 @@ class _EmployeeAttendanceScreenState extends State<EmployeeAttendanceScreen> {
                   ] else if (status == EmployeeAttendanceStatus.ready)
                     const Text('Aucune session active.'),
                   if (session?.isActive == true) ...[
-                    // The separate note foundation is not activated: shared
-                    // checkout/recovery fencing and deployment remain gated.
-                    const OutlinedButton(
-                      onPressed: null,
-                      child: Text('Enregistrer la note'),
-                    ),
-                    const Text(
-                      'L’enregistrement pendant la session n’est pas encore '
-                      'disponible. Vous pouvez conserver, remplacer ou effacer '
-                      'la note à la sortie.',
-                    ),
+                    if (workflow.notes != null &&
+                        workflow.noteDataAvailable) ...[
+                      TextField(
+                        key: const ValueKey('active-session-note'),
+                        controller: _noteDraft,
+                        enabled: workflow.canSaveNote,
+                        minLines: 2,
+                        maxLines: 5,
+                        onChanged: (_) {
+                          workflow.clearInputError();
+                          setState(() {
+                            _noteDirty = true;
+                          });
+                        },
+                        decoration: InputDecoration(
+                          labelText: 'Note pendant la session',
+                          helperText: _noteDirty ? 'Brouillon non enregistré.' : 'Valeur enregistrée chargée. Enregistrer un texte vide conserve une note vide ; Effacer supprime la note.',
+                          helperMaxLines: 4,
+                          counterText:
+                              '${_noteDraft.text.runes.length} / 1000 caractères Unicode',
+                          errorText: validateAttendanceInput(
+                            note: CheckoutNoteIntent.replace(_noteDraft.text),
+                          )?.message,
+                          errorMaxLines: 4,
+                        ),
+                      ),
+                      OutlinedButton(
+                        onPressed: workflow.canSaveNote && _noteDirty
+                            ? () {
+                                FocusScope.of(context).unfocus();
+                                unawaited(workflow.saveNote(_noteDraft.text));
+                              }
+                            : null,
+                        child: const Text('Enregistrer la note'),
+                      ),
+                      TextButton(
+                        onPressed:
+                            workflow.canSaveNote &&
+                                session!.employeeNote != null
+                            ? () {
+                                FocusScope.of(context).unfocus();
+                                unawaited(workflow.clearNote());
+                              }
+                            : null,
+                        child: const Text('Effacer la note enregistrée'),
+                      ),
+                    ] else ...[
+                      // Isolated callers without the application coordinator stay disabled.
+                      // checkout/recovery fencing and deployment remain gated.
+                      const OutlinedButton(
+                        onPressed: null,
+                        child: Text('Enregistrer la note'),
+                      ),
+                      const Text(
+                        'L’enregistrement pendant la session n’est pas encore '
+                        'disponible. Vous pouvez conserver, remplacer ou effacer '
+                        'la note à la sortie.',
+                      ),
+                    ],
                     const SizedBox(height: 24),
                     Text(
                       'Note à la sortie',
@@ -328,7 +389,13 @@ class _EmployeeAttendanceScreenState extends State<EmployeeAttendanceScreen> {
                     FilledButton.tonal(
                       onPressed: workflow.canRecover ? workflow.recover : null,
                       child: Text(
-                        state.recovery == AttendanceRecoveryAction.recoverEmpty
+                        state.recovery == AttendanceRecoveryAction.recoverNote
+                            ? 'Vérifier la note conservée'
+                            : state.recovery ==
+                                  AttendanceRecoveryAction.recoverCheckout
+                            ? 'Vérifier la sortie conservée'
+                            : state.recovery ==
+                                  AttendanceRecoveryAction.recoverEmpty
                             ? 'Réessayer la vérification sur cet appareil'
                             : 'Vérifier le pointage conservé',
                       ),
@@ -351,6 +418,10 @@ class _EmployeeAttendanceScreenState extends State<EmployeeAttendanceScreen> {
 }
 
 String _message(EmployeeAttendanceStatus status) => switch (status) {
+  EmployeeAttendanceStatus.savingNote =>
+    'Vérification de la note ou de l’opération conservée…',
+  EmployeeAttendanceStatus.notePending =>
+    'Une note ou une sortie conservée reste à vérifier.',
   EmployeeAttendanceStatus.loading => 'Vérification du pointage en cours…',
   EmployeeAttendanceStatus.ready => 'Votre pointage est à jour.',
   EmployeeAttendanceStatus.invalidInput =>

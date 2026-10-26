@@ -12,6 +12,8 @@ import 'journal/journal_command.dart';
 import 'journal/journal_json.dart';
 import 'journal/journal_record.dart';
 import 'integration/attendance_integration_guard.dart';
+import 'notes/session_note_coordinator.dart';
+import 'notes/session_note_record.dart';
 
 /// Injected canonical read, not the legacy repository's current-account lookup.
 /// Implementations must scope by the full identity, enforce authorization and
@@ -43,6 +45,8 @@ enum EmployeeAttendanceStatus {
   invalidInput,
   consumingConfirmation,
   consumptionUnresolved,
+  savingNote,
+  notePending,
 }
 
 enum AttendanceInputError {
@@ -57,7 +61,7 @@ enum AttendanceInputError {
           '${AttendanceActionCapture.siteDescriptionLimit} caractères Unicode. '
           'Un accent décomposé peut compter pour plusieurs caractères.',
     noteTooLong =>
-      'La note finale ne doit pas dépasser '
+      'La note ne doit pas dépasser '
           '${AttendanceActionCapture.finalNoteLimit} caractères Unicode. '
           'Un accent décomposé peut compter pour plusieurs caractères.',
     invalidText =>
@@ -104,7 +108,14 @@ AttendanceInputError? validateAttendanceInput({
   }
 }
 
-enum AttendanceRecoveryAction { none, replay, recoverConfirmed, recoverEmpty }
+enum AttendanceRecoveryAction {
+  none,
+  replay,
+  recoverConfirmed,
+  recoverEmpty,
+  recoverNote,
+  recoverCheckout,
+}
 
 final class EmployeeAttendanceState {
   const EmployeeAttendanceState(
@@ -113,6 +124,7 @@ final class EmployeeAttendanceState {
     this.recovery = AttendanceRecoveryAction.none,
     this.message,
     this.inputError,
+    this.noteSaveConfirmed = false,
   });
   final EmployeeAttendanceStatus status;
   // Canonical server data only. Never derived from an RPC/receipt or a draft.
@@ -120,6 +132,7 @@ final class EmployeeAttendanceState {
   final AttendanceRecoveryAction recovery;
   final String? message;
   final AttendanceInputError? inputError;
+  final bool noteSaveConfirmed;
 }
 
 /// C5 presentation with an optional fail-closed integration guard. No HTTP/auth
@@ -134,6 +147,7 @@ final class EmployeeAttendanceWorkflow extends ChangeNotifier {
     required this.coordinator,
     this.integrationGuard,
     this.onDisposed,
+    this.notes,
   }) {
     authorizationChanges.addListener(_authorizationChanged);
     activeSessions.addListener(_sessionsChanged);
@@ -144,6 +158,7 @@ final class EmployeeAttendanceWorkflow extends ChangeNotifier {
   final AttendanceActiveSessionReader activeSessions;
   final AttendanceActionCapture capture;
   final AttendanceOperationCoordinator coordinator;
+  final SessionNoteCoordinator? notes;
   final AttendanceIntegrationGuard? integrationGuard;
   final VoidCallback? onDisposed;
   bool get noteDataAvailable => integrationGuard?.enrichedSessions ?? true;
@@ -179,6 +194,7 @@ final class EmployeeAttendanceWorkflow extends ChangeNotifier {
   Future<void> get settled => _settlement?.future ?? Future<void>.value();
   bool get canCheckIn => _canAct && state.session == null;
   bool get canCheckOut => _canAct && state.session?.isActive == true;
+  bool get canSaveNote => notes != null && noteDataAvailable && canCheckOut;
   bool get _canAct =>
       !_disposed &&
       !_busy &&
@@ -345,6 +361,21 @@ final class EmployeeAttendanceWorkflow extends ChangeNotifier {
           .read(context.identity.binding);
       if (!_visible(context)) return;
       final record = read.record;
+      final noteRecord = await notes?.storage.read(context.identity.binding);
+      if (!_visible(context)) return;
+      if (noteRecord?.phase == SessionNotePhase.pending ||
+          noteRecord?.phase == SessionNotePhase.checkout) {
+        _set(
+          EmployeeAttendanceState(
+            EmployeeAttendanceStatus.notePending,
+            recovery: noteRecord!.phase == SessionNotePhase.checkout
+                ? AttendanceRecoveryAction.recoverCheckout
+                : AttendanceRecoveryAction.recoverNote,
+            message: 'Une opération conservée doit être vérifiée avant une nouvelle note ou sortie.',
+          ),
+        );
+        return;
+      }
       if (read.isBlocked ||
           record?.command?.protocol == JournalProtocol.legacyV1 ||
           record?.migration?.plaintextCleanupComplete == false) {
@@ -361,7 +392,20 @@ final class EmployeeAttendanceWorkflow extends ChangeNotifier {
         );
       } else {
         transferred = true;
-        _apply(await coordinator.readActive(context, activeSessions), context);
+        if (notes == null) {
+          _apply(
+            await coordinator.readActive(context, activeSessions),
+            context,
+          );
+        } else {
+          _applyNote(
+            await notes!.attendanceOperation(
+              context,
+              (child) => coordinator.readActive(child, activeSessions),
+            ),
+            context,
+          );
+        }
       }
     } on AttendanceIntegrationFailure catch (failure) {
       if (context == null || _visible(context)) {
@@ -429,7 +473,19 @@ final class EmployeeAttendanceWorkflow extends ChangeNotifier {
         ),
       );
       transferred = true;
-      final result = await coordinator.consumeConfirmed(context);
+      final noteResult = notes == null
+          ? null
+          : await notes!.attendanceOperation(
+              context,
+              coordinator.consumeConfirmed,
+            );
+      final result =
+          noteResult?.attendance ??
+          (notes == null ? await coordinator.consumeConfirmed(context) : null);
+      if (result == null) {
+        _applyNote(noteResult!, context);
+        return;
+      }
       if (!_visible(context) || !result.isCurrent) return;
       if (result.outcome == AttendanceOperationOutcome.consumed) {
         await _refreshSelection(
@@ -603,10 +659,26 @@ final class EmployeeAttendanceWorkflow extends ChangeNotifier {
         ),
       );
       // This future owns the handed context through late receipt settlement.
-      _apply(
-        await coordinator.submit(submission.context, submission.command),
-        context,
-      );
+      if (notes == null) {
+        _apply(
+          await coordinator.submit(submission.context, submission.command),
+          context,
+        );
+      } else if (session != null) {
+        _applyNote(
+          await notes!.checkOut(submission.context, submission.command),
+          context,
+          checkout: true,
+        );
+      } else {
+        _applyNote(
+          await notes!.attendanceOperation(
+            submission.context,
+            (child) => coordinator.submit(child, submission.command),
+          ),
+          context,
+        );
+      }
     } on AttendanceIntegrationFailure catch (failure) {
       _emptyJournal = false;
       if (context == null || _visible(context)) {
@@ -645,6 +717,11 @@ final class EmployeeAttendanceWorkflow extends ChangeNotifier {
   /// Exact-command recovery only. No capture, new key, fresh evidence, mutation
   /// on replay miss, or fallback to a legacy attendance RPC.
   Future<void> recover() async {
+    if (state.recovery == AttendanceRecoveryAction.recoverNote ||
+        state.recovery == AttendanceRecoveryAction.recoverCheckout) {
+      await _noteOperation(recovery: state.recovery);
+      return;
+    }
     if (!canRecover || !_begin()) return;
     final recovery = state.recovery;
     AttendanceOperationContext? context;
@@ -710,6 +787,186 @@ final class EmployeeAttendanceWorkflow extends ChangeNotifier {
       if (context != null && !transferred) await _release(context);
       _finish();
     }
+  }
+
+  Future<void> saveNote(String text) =>
+      _noteOperation(note: CheckoutNoteIntent.replace(text));
+  Future<void> clearNote() =>
+      _noteOperation(note: const CheckoutNoteIntent.clear());
+
+  Future<void> _noteOperation({
+    CheckoutNoteIntent? note,
+    AttendanceRecoveryAction? recovery,
+  }) async {
+    if (notes == null ||
+        (note != null ? !canSaveNote : !canRecover) ||
+        !_begin()) {
+      return;
+    }
+    AttendanceOperationContext? context;
+    var transferred = false;
+    final selected = state.session;
+    try {
+      if (note != null) {
+        final error = validateAttendanceInput(note: note);
+        if (error != null) {
+          _set(
+            EmployeeAttendanceState(
+              EmployeeAttendanceStatus.invalidInput,
+              session: selected,
+              inputError: error,
+              message: error.message,
+            ),
+          );
+          return;
+        }
+      }
+      final previous = _viewIdentity!;
+      final revision = _viewSessionRevision;
+      context = issueContext();
+      if (!_adopt(context)) return;
+      if (previous.generation != context.identity.generation ||
+          !previous.binding.matches(context.identity.binding) ||
+          revision != activeSessions.revision) {
+        _emptyJournal = false;
+        _set(
+          const EmployeeAttendanceState(
+            EmployeeAttendanceStatus.authorizationUnavailable,
+          ),
+        );
+        return;
+      }
+      final command = note == null
+          ? null
+          : SessionNoteCommand.capture(
+              identity: context.identity,
+              sessionId: selected!.id,
+              operationKey: SecureAttendanceActionKeys().next(),
+              note: note,
+              contractVersion: 2,
+            );
+      await integrationGuard?.beforeAction(context.identity);
+      if (!_visible(context)) return;
+      if (command != null &&
+          !activeSessions.isSessionCurrent(
+            context.identity,
+            command.sessionId,
+          )) {
+        _set(
+          const EmployeeAttendanceState(
+            EmployeeAttendanceStatus.refreshUnavailable,
+          ),
+        );
+        return;
+      }
+      _emptyJournal = false;
+      _set(
+        EmployeeAttendanceState(
+          EmployeeAttendanceStatus.savingNote,
+          session: selected,
+        ),
+      );
+      transferred = true;
+      final result = command != null
+          ? await notes!.save(context, command)
+          : recovery == AttendanceRecoveryAction.recoverCheckout
+          ? await notes!.recoverCheckout(context)
+          : await notes!.recover(context);
+      final outcome = result.outcome;
+      if (_visible(context) &&
+          result.isCurrent &&
+          (outcome == NoteOperationOutcome.applied ||
+              outcome == NoteOperationOutcome.notApplied)) {
+        // A cold pending-note route has not selected an active session yet.
+        // Establish the scoped reader's real observation and C3 gate before
+        // enabling fresh Save/checkout; never synthesize it from the receipt.
+        await _refreshSelection(
+          expected: context.identity,
+          expectedSessionRevision: _viewSessionRevision,
+        );
+        if (_visible(context) &&
+            result.isCurrent &&
+            state.status == EmployeeAttendanceStatus.ready) {
+          _set(
+            EmployeeAttendanceState(
+              EmployeeAttendanceStatus.ready,
+              session: state.session,
+              noteSaveConfirmed: outcome == NoteOperationOutcome.applied,
+              message: outcome == NoteOperationOutcome.applied
+                  ? 'Enregistrement de la note confirmé. La valeur enregistrée ci-dessous est à jour.'
+                  : 'La note conservée n’a pas été appliquée. La valeur enregistrée a été actualisée.',
+            ),
+          );
+        }
+      } else {
+        _applyNote(
+          result,
+          context,
+          checkout: recovery == AttendanceRecoveryAction.recoverCheckout,
+        );
+      }
+    } catch (_) {
+      if (context == null) {
+        _set(
+          const EmployeeAttendanceState(
+            EmployeeAttendanceStatus.authorizationUnavailable,
+          ),
+        );
+      } else if (_visible(context)) {
+        _emptyJournal = false;
+        _set(
+          EmployeeAttendanceState(
+            transferred
+                ? EmployeeAttendanceStatus.notePending
+                : EmployeeAttendanceStatus.blocked,
+            recovery: transferred
+                ? AttendanceRecoveryAction.recoverNote
+                : AttendanceRecoveryAction.none,
+            message: transferred
+                ? 'La note reste à vérifier. Aucun nouvel envoi automatique.'
+                : 'La vérification de votre accès ou de cet appareil a échoué. Actualisez avant de continuer.',
+          ),
+        );
+      }
+    } finally {
+      if (context != null && !transferred) await _release(context);
+      _finish();
+    }
+  }
+
+  void _applyNote(
+    NoteOperationResult result,
+    AttendanceOperationContext context, {
+    bool checkout = false,
+  }) {
+    if (!_visible(context)) return;
+    if (!result.isCurrent) {
+      _set(
+        const EmployeeAttendanceState(
+          EmployeeAttendanceStatus.authorizationUnavailable,
+        ),
+      );
+      return;
+    }
+    if (result.outcome == NoteOperationOutcome.attendanceFinished ||
+        result.outcome == NoteOperationOutcome.checkoutFinished) {
+      if (result.attendance != null) _apply(result.attendance!, context);
+      return;
+    }
+    _emptyJournal = false;
+    _set(
+      EmployeeAttendanceState(
+        EmployeeAttendanceStatus.notePending,
+        recovery:
+            checkout || result.problem == NoteOperationProblem.checkoutPending
+            ? AttendanceRecoveryAction.recoverCheckout
+            : AttendanceRecoveryAction.recoverNote,
+        message:
+            checkout && result.problem == NoteOperationProblem.attendancePending
+            ? 'Le justificatif de la sortie est absent, différent ou incomplet. Les données restent conservées. Contactez votre administrateur.'
+            : 'Une opération reste à vérifier. Les données existantes restent conservées ; aucune nouvelle note ou sortie ne sera envoyée.',
+      ),
+    );
   }
 
   static AttendanceRecoveryAction _recovery(JournalRecord record) =>
