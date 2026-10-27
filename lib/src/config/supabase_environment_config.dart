@@ -1,3 +1,5 @@
+import '../attendance/history/session_history.dart';
+
 class SupabaseEnvironmentConfig {
   const SupabaseEnvironmentConfig({
     required this.url,
@@ -6,6 +8,8 @@ class SupabaseEnvironmentConfig {
     required this.keySource,
     this.attendanceEnvironmentId = '',
     this.developmentAttendanceOperatorPublicKey = '',
+    this.historyNotesEnabled = false,
+    this.historyReviewEnabled = false,
   });
 
   factory SupabaseEnvironmentConfig.fromEnvironment() {
@@ -33,6 +37,10 @@ class SupabaseEnvironmentConfig {
       developmentAttendanceOperatorPublicKey: const String.fromEnvironment(
         'DEVELOPMENT_ATTENDANCE_OPERATOR_PUBLIC_KEY',
       ),
+      historyNotesEnabled: const bool.fromEnvironment('HISTORY_NOTES_ENABLED'),
+      historyReviewEnabled: const bool.fromEnvironment(
+        'HISTORY_REVIEW_ENABLED',
+      ),
     );
   }
 
@@ -49,6 +57,13 @@ class SupabaseEnvironmentConfig {
   // Independent public trust anchor; never obtained from capability or journals.
   // Only DEBUG composition may select its verifier; configuration grants nothing.
   final String developmentAttendanceOperatorPublicKey;
+  // Operator-reviewed deployment schema, independent of attendance approval.
+  // A failed enriched query remains an error; never retry a weaker projection.
+  final bool historyNotesEnabled, historyReviewEnabled;
+  HistoryCapabilities get historyCapabilities => HistoryCapabilities(
+    notes: historyNotesEnabled,
+    review: historyReviewEnabled,
+  );
 
   bool get isConfigured => missingValues.isEmpty;
 }

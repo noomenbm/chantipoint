@@ -1,5 +1,15 @@
 # Bounded development installation authority
 
+Current follow-up (2026-10-25): the existing hosted deployment has seven reviewed
+migrations, gate 2 and its original epoch; the working developer phone has signed
+native authority. The [client beta](client-beta-jamal.md) adds a separate temporary
+remote utility using the unchanged prepare/install/read methods and user-selected
+request/signature documents. It grants nothing from login, build configuration or
+an unsigned request. Its normal-app update retains the same package/signing/data;
+no private key reaches the phone. Jamal's account and actual Samsung enrollment
+remain pending. The no-provisioning/six-migration statements below describe the
+original implementation slice, not the current hosted state.
+
 This implementation starts from clean `15c4ca0613ef13da6fad006302cc6530c939c07c`.
 The latest verified hosted baseline supersedes older deployment-preparation text:
 six migrations, gate 1, 52 strict postchecks and authenticated capability GET passed.

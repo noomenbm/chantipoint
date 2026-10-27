@@ -6,7 +6,43 @@ reservation requiring reviewed recovery/operator intervention. Keep the original
 evidence; no generic reset or journal deletion is approved. This must be resolved
 before production, even if controlled hosted development testing succeeds.
 
-Current follow-up: **hosted development activation and physical phone testing**,
+Current follow-up: **employee client beta and remote activation**, baseline
+`001eebd677b54316b3339aebe828a77e11a19478`. Universal normal and separate activation
+APK targets include ARM32, ARM64 and x86-64 engines, Android 7.0 minimum and a
+matching verified debug signature. The normal French employee UI gains no
+temporary tour or debug controls. The separate two-page French PDF explains the
+remote request/signature workflow and normal attendance/notes/History.
+
+Hosted read-only acceptance passed the 57 strict gate-2 checks, exact enriched
+authenticated History projection and actual Flutter History repository smoke
+test. The existing three sessions include a canonical note and review statuses.
+Reviewed build configuration now enables both History capabilities, retaining
+conservative defaults and error behavior elsewhere. No hosted write, migration,
+gate/epoch change or replacement of the developer APK is performed in this task.
+
+The utility reuses full signed device binding and existing native certification;
+Android document selection exports original bytes and stages a bounded signature
+before explicit installation. Jamal's supplied email is retained privately, but
+Auth/profile provisioning, approved initial credential and his actual Samsung
+enrollment are pending. Exact operator steps and the ROLLBACK-default employee
+provisioning template are prepared. The beta cannot authorize an unenrolled
+Samsung merely by installation/login. See [client-beta review](client-beta-jamal.md)
+for current runtime evidence, remaining readiness limits and delivery inventory.
+The pre-production checkout-reservation blocker above remains unresolved.
+
+Acceptance passed **150 focused Flutter checks**, final analyzer and universal/
+isolated Android builds. A fresh isolated package on the Redmi completed exact
+request export, cancelled/signature import, explicit signed install, normal-app
+update, attendance entry/exit with note preservation, enriched cold History and
+logout/restart. Its local database ends at four closed sessions, eight events/
+observations and seven note operations; rehearsal services are stopped with data
+retained. A rollback-only distinct-employee provisioning probe hid all four other
+employee sessions. The existing developer APK/approval hashes are unchanged and
+its hosted login/three sessions remain available. Samsung runtime and emulator
+execution remain unverified; the created new AVD was not launched due to memory
+limits. No commit/push or application-data reset occurred.
+
+Previous follow-up: **hosted development activation and physical phone testing**,
 baseline `7da09e126d61389db873cdc6d91829a31519dcb3`. The existing
 `chantipoint-dev` project now has all seven reviewed migrations and gate 2, with
 its original server-generated epoch preserved. A private logical backup restored

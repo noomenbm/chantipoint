@@ -1,5 +1,14 @@
 # Employee session history
 
+Current client-beta verification (2026-10-25): the existing hosted seven-migration
+gate-2 schema passed 57 strict checks. Authenticated enriched HTTP and the actual
+History repository returned the developer's three owned sessions with canonical
+note/review fields. The reviewed beta defines `HISTORY_NOTES_ENABLED=true` and
+`HISTORY_REVIEW_ENABLED=true`; normal composition passes those capabilities.
+Unreviewed builds retain false defaults. Errors never retry a weaker projection.
+See [client beta and remote activation](client-beta-jamal.md) for evidence,
+provisioning status and artifacts. The initial hosted baseline below is historical.
+
 The normal signed-in employee home has a read-only **Historique** entry. It shows
 owned sessions, including active and closed sessions, newest first, with expandable
 details and French loading/empty/error/retry/load-more states. Returning home keeps

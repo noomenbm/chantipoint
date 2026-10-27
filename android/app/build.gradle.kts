@@ -8,6 +8,7 @@ plugins {
 val journalValidation = providers.gradleProperty("journalValidation").orNull == "true"
 val locationValidation = providers.gradleProperty("locationValidation").orNull == "true"
 val enrollmentValidation = providers.gradleProperty("enrollmentValidation").orNull == "true"
+val activationUtility = providers.gradleProperty("activationUtility").orNull == "true"
 check(listOf(journalValidation, locationValidation, enrollmentValidation).count { it } <= 1)
 
 android {
@@ -23,6 +24,7 @@ android {
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.example.chantipoint"
+        manifestPlaceholders["appLabel"] = if (activationUtility) "Activation ChantiPoint" else "ChantiPoint"
         if (enrollmentValidation) {
             applicationIdSuffix = ".enrollmentvalidation"
             testInstrumentationRunner = "com.example.chantipoint.journal.DevelopmentEnrollmentInstrumentation"

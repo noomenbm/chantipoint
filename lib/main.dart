@@ -39,6 +39,7 @@ Future<void> main() async {
             Supabase.instance.client,
             user,
             isCurrent,
+            capabilities: config.historyCapabilities,
           ),
       employeeWorkflowFactory: attendance.createWorkflow,
       onDispose: () =>
